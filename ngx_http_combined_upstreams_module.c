@@ -244,9 +244,6 @@ ngx_http_combine_server_singlets(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         unsigned char                  buf[128];
         unsigned char                 *end;
 
-        if (us[i].backup)
-            continue;
-
         ngx_memzero(&u, sizeof(ngx_url_t));
         end = ngx_snprintf(buf, sizeof(buf), fmt, suf, i + 1);
         u.url.len = uscf->host.len + (end - buf);
@@ -292,8 +289,7 @@ ngx_http_combine_server_singlets(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
         for (j = 0; j < uscf->servers->nelts; ++j) {
             usnp[j] = us[j];
-            if (j != i)
-                usnp[j].backup = 1;
+            usnp[j].backup = i == j ? 0 : 1;
         }
     }
 
