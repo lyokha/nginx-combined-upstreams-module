@@ -216,14 +216,13 @@ ngx_http_combine_server_singlets(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     }
 
     usmf = ngx_http_conf_get_module_main_conf(cf, ngx_http_upstream_module);
-    uscfp = usmf->upstreams.elts;
     us = uscf->servers->elts;
     value = cf->args->elts;
 
     if (cf->args->nelts > 1) {
         unsigned char  *buf = ngx_pnalloc(cf->pool, value[1].len + 1);
         ngx_snprintf(buf, value[1].len, "%V", &value[1]);
-        suf = (char*)buf;
+        suf = (const char*)buf;
         if (cf->args->nelts > 2) {
             if (ngx_atoi(value[2].data, value[2].len) == NGX_ERROR) {
                 ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
@@ -233,7 +232,7 @@ ngx_http_combine_server_singlets(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
             }
             buf = ngx_pnalloc(cf->pool, value[2].len + 6);
             ngx_snprintf(buf, sizeof(buf), "%s%V%s", "%s%0", &value[2], "d");
-            fmt = (char*)buf;
+            fmt = (const char*)buf;
         }
     }
 
@@ -255,6 +254,10 @@ ngx_http_combine_server_singlets(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         ngx_memcpy(u.url.data, uscf->host.data, uscf->host.len);
         ngx_memcpy(u.url.data + uscf->host.len, buf, end - buf);
         u.no_resolve = 1;
+
+        /* uscfp may have changed after addition of a singlet upstream, so it
+         * must be re-assigned in every iteration of the outer for-loop */
+        uscfp = usmf->upstreams.elts;
 
         for (j = 0; j < usmf->upstreams.nelts; j++) {
             if (uscfp[j]->host.len == u.url.len &&
