@@ -48,6 +48,7 @@ upstream  uhost {
     # build singlet upstreams uhost_single_01,
     # uhost_single_02, uhost_single_03 and uhost_single_04
     combine_server_singlets  _single_ 2;
+    server                   s5;
 }
 ```
 
