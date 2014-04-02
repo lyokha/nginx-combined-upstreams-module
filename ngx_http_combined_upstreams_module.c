@@ -156,7 +156,6 @@ ngx_http_add_upstream(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     if (cf->args->nelts == 3) {
         if (ngx_strncmp(value[2].data, "backup", 6) == 0) {
             backup = 1;
-            uscf->flags |= NGX_HTTP_UPSTREAM_BACKUP;
         } else {
             ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "invalid parameter \"%V\"",
                                &value[2]);
@@ -171,22 +170,23 @@ ngx_http_add_upstream(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
             if (uscf->servers == NULL) {
                 uscf->servers = ngx_array_create(cf->pool, 4,
                                             sizeof(ngx_http_upstream_server_t));
-                if (uscf->servers == NULL) {
+                if (uscf->servers == NULL)
                     return NGX_CONF_ERROR;
-                }
             }
+
             us = ngx_array_push_n(uscf->servers, uscfp[i]->servers->nelts);
-            if (us == NULL) {
+            if (us == NULL)
                 return NGX_CONF_ERROR;
-            }
+
             ngx_memcpy(us, uscfp[i]->servers->elts,
                 sizeof(ngx_http_upstream_server_t) * uscfp[i]->servers->nelts);
-            uscf->flags |= uscfp[i]->flags;
+
             if (backup) {
                 for (j = 0; j < uscfp[i]->servers->nelts; j++) {
                     us[j].backup = 1;
                 }
             }
+
             return NGX_CONF_OK;
         }
     }
@@ -201,35 +201,33 @@ static char *
 ngx_http_combine_server_singlets(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
     ngx_uint_t                      i, j;
-    ngx_http_upstream_main_conf_t  *usmf;
-    ngx_http_upstream_srv_conf_t   *uscf, **uscfp;
-    ngx_http_upstream_server_t     *us;
+    ngx_http_upstream_srv_conf_t   *uscf;
     ngx_str_t                      *value;
     const char                     *suf = "", *fmt = "%s%d";
 
     uscf = ngx_http_conf_get_module_srv_conf(cf, ngx_http_upstream_module);
-
     if (uscf->servers == NULL) {
         ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
                            "no server so far declared to build singlets");
         return NGX_CONF_ERROR;
     }
 
-    usmf = ngx_http_conf_get_module_main_conf(cf, ngx_http_upstream_module);
-    us = uscf->servers->elts;
     value = cf->args->elts;
 
     if (cf->args->nelts > 1) {
         unsigned char  *buf = ngx_pnalloc(cf->pool, value[1].len + 1);
+
         ngx_snprintf(buf, value[1].len, "%V", &value[1]);
         suf = (const char*)buf;
+
         if (cf->args->nelts > 2) {
             if (ngx_atoi(value[2].data, value[2].len) == NGX_ERROR) {
                 ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                                   "second parameter \"%V\" is not an integer "
+                                   "second parameter \"%V\" must be an integer "
                                    "value", &value[2]);
                 return NGX_CONF_ERROR;
             }
+
             buf = ngx_pnalloc(cf->pool, value[2].len + 6);
             ngx_snprintf(buf, sizeof(buf), "%s%V%s", "%s%0", &value[2], "d");
             fmt = (const char*)buf;
@@ -239,41 +237,27 @@ ngx_http_combine_server_singlets(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     for (i = 0; i < uscf->servers->nelts; i++) {
         ngx_url_t                      u;
         ngx_http_upstream_srv_conf_t  *uscfn;
-        ngx_http_upstream_server_t    *usnp;
+        ngx_http_upstream_server_t    *usn;
         unsigned char                  buf[128];
         unsigned char                 *end;
 
         ngx_memzero(&u, sizeof(ngx_url_t));
         end = ngx_snprintf(buf, sizeof(buf), fmt, suf, i + 1);
-        u.url.len = uscf->host.len + (end - buf);
-        u.url.data = ngx_pnalloc(cf->pool, u.url.len);
 
-        if (u.url.data == NULL)
+        u.host.len = uscf->host.len + (end - buf);
+        u.host.data = ngx_pnalloc(cf->pool, u.host.len);
+        if (u.host.data == NULL)
             return NGX_CONF_ERROR;
 
-        ngx_memcpy(u.url.data, uscf->host.data, uscf->host.len);
-        ngx_memcpy(u.url.data + uscf->host.len, buf, end - buf);
+        ngx_memcpy(u.host.data, uscf->host.data, uscf->host.len);
+        ngx_memcpy(u.host.data + uscf->host.len, buf, end - buf);
         u.no_resolve = 1;
+        u.no_port = 1;
 
-        /* uscfp may have changed after addition of a singlet upstream, so it
-         * must be re-assigned in every iteration of the outer for-loop */
-        uscfp = usmf->upstreams.elts;
-
-        for (j = 0; j < usmf->upstreams.nelts; j++) {
-            if (uscfp[j]->host.len == u.url.len &&
-                ngx_strncasecmp(uscfp[j]->host.data,
-                                u.url.data, u.url.len) == 0) {
-                ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                                   "duplicate upstream \"%V\"", &u.url);
-                return NGX_CONF_ERROR;
-            }
-        }
-
-        uscfn = ngx_http_upstream_add(cf, &u, 0);
-
+        uscfn = ngx_http_upstream_add(cf, &u, NGX_HTTP_UPSTREAM_CREATE);
         if (uscfn == NULL) {
             ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                               "failed to add upstream \"%V\"", &u.url);
+                               "failed to add upstream \"%V\"", &u.host);
             return NGX_CONF_ERROR;
         }
 
@@ -282,17 +266,17 @@ ngx_http_combine_server_singlets(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         if (uscf->servers == NULL)
             return NGX_CONF_ERROR;
 
-        usnp = ngx_array_push_n(uscfn->servers, uscf->servers->nelts);
-
-        if (usnp == NULL) {
+        usn = ngx_array_push_n(uscfn->servers, uscf->servers->nelts);
+        if (usn == NULL) {
             ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                               "failed to add upstream \"%V\"", &u.url);
+                               "failed to add upstream \"%V\"", &u.host);
             return NGX_CONF_ERROR;
         }
 
+        ngx_memcpy(usn, uscf->servers->elts,
+                   sizeof(ngx_http_upstream_server_t) * uscf->servers->nelts);
         for (j = 0; j < uscf->servers->nelts; ++j) {
-            usnp[j] = us[j];
-            usnp[j].backup = i == j ? 0 : 1;
+            usn[j].backup = i == j ? 0 : 1;
         }
     }
 
