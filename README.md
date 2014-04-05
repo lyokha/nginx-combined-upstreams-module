@@ -58,7 +58,7 @@ In the example above singlet upstreams will have names like *uhost_single_01*
 but names that contain server names like *uhost_single_s1* would look better and
 more convenient. Why not use them instead ordering numbers? Unfortunately nginx
 does not remember server names after a server has been added into an upstream,
-therefore we cannot simply fetch it.
+therefore we cannot simply fetch them.
 
 ### Where this can be useful
 
