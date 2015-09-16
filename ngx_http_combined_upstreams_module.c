@@ -7,7 +7,8 @@
  *
  *                  The module introduces two directives 'add_upstream' and
  *                  'combine_server_singlets' available inside upstream
- *                  configuration blocks.
+ *                  configuration blocks and a new configuration block
+ *                  'upstrand' for building super-layers of upstreams.
  *
  *                  Directive 'add_upstream'
  *                  ------------------------
