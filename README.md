@@ -110,8 +110,8 @@ where *server1* is declared active and *server2* is backed up. As soon as
 which will rewrite the cookie *rt* and all further client requests will be
 proxied to *server2* until it goes down.
 
-Block 'upstrand'
----------------
+Block upstrand
+--------------
 
 Is aimed to configure a super-layer of upstreams which do not lose their
 identities. Accepts directives *upstream*, *order* and *next_upstream_statuses*.
@@ -140,7 +140,7 @@ normal and backup cycles after worker fired up will be chosen randomly. Next
 upstreams will be chosen in round-robin manner.
 
 Such a failover between *failure* statuses may be reached during a single
-request by feeding a special variable that starts with *\$upstrand_* to the
+request by feeding a special variable that starts with *&#36;upstrand_* to the
 *proxy_pass* directive like so:
 
 ```nginx
