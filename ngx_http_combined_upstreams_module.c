@@ -54,6 +54,55 @@
  *                      combine_server_singlets  _single_ 2;
  *                  }
  *
+ *                  Block 'upstrand'
+ *                  ---------------
+ *                  Is aimed to configure a super-layer of upstreams which do
+ *                  not lose their identities. Accepts directives 'upstream',
+ *                  'order' and 'next_upstream_statuses'. Upstreams with names
+ *                  starting with tilde ('~') match a regular expression. Only
+ *                  upstreams that already have been declared before the
+ *                  upstrand block definition will be regarded as candidates.
+ *
+ *                  An example:
+ *
+ *                  upstrand us1 {
+ *                      upstream ~^u0;
+ *                      upstream b01 backup;
+ *                      order start_random;
+ *                      next_upstream_statuses 204 5xx;
+ *                  }
+ *
+ *                  Upstrand 'us1' will combine all upstreams whose names start
+ *                  with 'u0' and upstream 'b01' as backup. Backup upstreams are
+ *                  checked if all normal upstreams fail. The 'failure' means
+ *                  that all upstreams in normal or backup cycles have answered
+ *                  with statuses listed in directive 'next_upstream_statuses'.
+ *                  The directive accepts '4xx' and '5xx' statuses notation.
+ *                  Directive 'order' currently accepts only one value
+ *                  'start_random' which means that starting upstreams in normal
+ *                  and backup cycles after worker fired up will be chosen
+ *                  randomly. Next upstreams will be chosen in round-robin
+ *                  manner.
+ *
+ *                  Such a failover between 'failure' statuses may be reached
+ *                  during a single request by feeding a special variable that
+ *                  starts with '$upstrand_' to the proxy_pass directive like
+ *                  so:
+ *
+ *                  location /us1 {
+ *                      proxy_pass http://$upstrand_us1;
+ *                  }
+ *
+ *                  But this is not enough! To enjoy this behavior the module
+ *                  requires access to the content handler
+ *                  'ngx_http_proxy_handler' of the proxy module which is not
+ *                  normally feasible to achieve due to its static scope. To
+ *                  enable the machinery one have to remove the keyword 'static'
+ *                  from the handler definition inside the nginx source file
+ *                  src/http/modules/ngx_httpproxy_module.c and also to add
+ *                  macro definition 'UPSTRAND_ENABLE_PROXY_HANDLER' when
+ *                  building this module.
+ *
  *        Version:  1.0
  *        Created:  05.10.2011 16:06:15
  *
@@ -69,10 +118,77 @@
 #include <ngx_http.h>
 
 
+typedef struct {
+    ngx_array_t                upstrands;
+    ngx_http_handler_pt        handler;
+} ngx_http_upstrand_main_conf_t;
+
+
+typedef enum {
+    ngx_http_upstrand_order_normal = 0,
+    ngx_http_upstrand_order_start_random
+} ngx_http_upstrand_order_e;
+
+
+typedef struct {
+    ngx_array_t                upstreams;
+    ngx_array_t                b_upstreams;
+    ngx_array_t                next_upstream_statuses;
+    ngx_int_t                  cur;
+    ngx_int_t                  b_cur;
+    ngx_http_upstrand_order_e  order;
+} ngx_http_upstrand_conf_t;
+
+
+typedef struct {
+    ngx_http_upstrand_conf_t  *upstrand;
+    ngx_conf_t                *cf;
+} ngx_http_upstrand_conf_ctx_t;
+
+
+typedef struct {
+    ngx_array_t               *next_upstream_statuses;
+    ngx_int_t                  start_cur;
+    ngx_int_t                  start_bcur;
+    ngx_int_t                  cur;
+    ngx_int_t                  b_cur;
+    ngx_uint_t                 last:1;
+    ngx_uint_t                 last_buf:1;
+} ngx_http_upstrand_request_ctx_t;
+
+
+#ifdef UPSTRAND_ENABLE_PROXY_HANDLER
+ngx_int_t ngx_http_proxy_handler(ngx_http_request_t *r);
+#endif
+
+static ngx_int_t ngx_http_upstrand_init(ngx_conf_t *cf);
+static void *ngx_http_upstrand_create_main_conf(ngx_conf_t *cf);
+static ngx_int_t ngx_http_upstrand_content_phase_handler(ngx_http_request_t *r);
+static ngx_int_t ngx_http_upstrand_response_header_filter(
+    ngx_http_request_t *r);
+static ngx_int_t ngx_http_upstrand_response_body_filter(ngx_http_request_t *r,
+    ngx_chain_t *in);
+static char *ngx_http_upstrand_block(ngx_conf_t *cf, ngx_command_t *cmd,
+    void *conf);
+static char *ngx_http_upstrand(ngx_conf_t *cf, ngx_command_t *dummy,
+    void *conf);
+static char *ngx_http_upstrand_add_upstream(ngx_conf_t *cf,
+    ngx_array_t *upstreams, ngx_str_t *name);
+#if (NGX_PCRE)
+static char *ngx_http_upstrand_regex_add_upstream(ngx_conf_t *cf,
+    ngx_array_t *upstreams, ngx_str_t *name);
+#endif
+static ngx_int_t ngx_http_upstrand_variable(ngx_http_request_t *r,
+    ngx_http_variable_value_t *v, uintptr_t data);
+
 static char *ngx_http_add_upstream(ngx_conf_t *cf,
     ngx_command_t *cmd, void *conf);
 static char *ngx_http_combine_server_singlets(ngx_conf_t *cf,
     ngx_command_t *cmd, void *conf);
+
+
+static ngx_http_output_header_filter_pt  ngx_http_next_header_filter;
+static ngx_http_output_body_filter_pt    ngx_http_next_body_filter;
 
 
 static ngx_command_t  ngx_http_combined_upstreams_commands[] = {
@@ -89,6 +205,12 @@ static ngx_command_t  ngx_http_combined_upstreams_commands[] = {
       0,
       0,
       NULL },
+    { ngx_string("upstrand"),
+      NGX_HTTP_MAIN_CONF|NGX_CONF_BLOCK|NGX_CONF_TAKE1,
+      ngx_http_upstrand_block,
+      NGX_HTTP_MAIN_CONF_OFFSET,
+      0,
+      NULL },
 
       ngx_null_command
 };
@@ -96,9 +218,9 @@ static ngx_command_t  ngx_http_combined_upstreams_commands[] = {
 
 static ngx_http_module_t  ngx_http_combined_upstreams_module_ctx = {
     NULL,                                    /* preconfiguration */
-    NULL,                                    /* postconfiguration */
+    ngx_http_upstrand_init,                  /* postconfiguration */
 
-    NULL,                                    /* create main configuration */
+    ngx_http_upstrand_create_main_conf,      /* create main configuration */
     NULL,                                    /* init main configuration */
 
     NULL,                                    /* create server configuration */
@@ -123,6 +245,573 @@ ngx_module_t  ngx_http_combined_upstreams_module = {
     NULL,                                    /* exit master */
     NGX_MODULE_V1_PADDING
 };
+
+
+static ngx_int_t
+ngx_http_upstrand_init(ngx_conf_t *cf)
+{
+#ifdef UPSTRAND_ENABLE_PROXY_HANDLER
+    ngx_http_handler_pt        *h;
+    ngx_http_core_main_conf_t  *cmcf;
+
+    cmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_core_module);
+
+    h = ngx_array_push(&cmcf->phases[NGX_HTTP_CONTENT_PHASE].handlers);
+    if (h == NULL) {
+        return NGX_ERROR;
+    }
+
+    *h = ngx_http_upstrand_content_phase_handler;
+#endif
+
+    ngx_http_next_header_filter = ngx_http_top_header_filter;
+    ngx_http_top_header_filter = ngx_http_upstrand_response_header_filter;
+
+    ngx_http_next_body_filter = ngx_http_top_body_filter;
+    ngx_http_top_body_filter = ngx_http_upstrand_response_body_filter;
+
+    return NGX_OK;
+}
+
+
+static ngx_int_t
+ngx_http_upstrand_content_phase_handler(ngx_http_request_t *r)
+{
+    ngx_http_core_loc_conf_t         *clcf;
+    ngx_http_upstrand_main_conf_t    *mcf;
+
+    clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
+
+    mcf = ngx_http_get_module_main_conf(r, ngx_http_combined_upstreams_module);
+    if (mcf->handler != NULL && mcf->handler == clcf->handler) {
+        return mcf->handler(r);
+    }
+}
+
+
+static ngx_int_t
+ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
+{
+    ngx_uint_t                        i;
+    ngx_http_core_loc_conf_t         *clcf;
+    ngx_http_upstrand_main_conf_t    *mcf;
+    ngx_http_upstrand_request_ctx_t  *ctx;
+    ngx_int_t                         status;
+    ngx_http_request_t               *sr;
+    ngx_str_t                         uri;
+    ngx_int_t                        *next_upstream_statuses;
+    ngx_uint_t                        is_next_upstream_status;
+
+    clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
+
+    mcf = ngx_http_get_module_main_conf(r, ngx_http_combined_upstreams_module);
+    if (mcf->handler == NULL || mcf->handler != clcf->handler) {
+        return ngx_http_next_header_filter(r);
+    }
+
+    ctx = ngx_http_get_module_ctx(r->main, ngx_http_combined_upstreams_module);
+    if (ctx == NULL) {
+        return ngx_http_next_header_filter(r);
+    }
+
+    status = r->headers_out.status;
+
+    next_upstream_statuses = ctx->next_upstream_statuses->elts;
+    is_next_upstream_status = 0;
+
+    for (i = 0; i < ctx->next_upstream_statuses->nelts; i++) {
+
+        if ((next_upstream_statuses[i] == -4 && status >= 400 && status < 500)
+            ||
+            (next_upstream_statuses[i] == -5 && status >= 500 && status < 600)
+            ||
+            status == next_upstream_statuses[i])
+        {
+            is_next_upstream_status = 1;
+            break;
+        }
+    }
+
+    if (is_next_upstream_status && !ctx->last) {
+        uri.data = ngx_pnalloc(r->pool, r->main->uri.len);
+        if (uri.data == NULL) {
+            return NGX_ERROR;
+        }
+
+        uri.len  = r->main->uri.len;
+
+        ngx_memcpy(uri.data, r->main->uri.data, r->main->uri.len);
+
+        if (ngx_http_subrequest(r, &uri, NULL, &sr, NULL, 0) != NGX_OK) {
+            return NGX_ERROR;
+        }
+
+        /* subrequest must use method of the original request */
+        sr->method = r->method;
+        sr->method_name = r->method_name;
+
+        return NGX_OK;
+    } else {
+        ctx->last = 1;
+    }
+
+    if (r != r->main && ctx->last) {
+        /* copy HTTP headers to main request */
+        r->main->headers_out = r->headers_out;
+
+        return ngx_http_next_header_filter(r->main);
+    }
+
+    return ngx_http_next_header_filter(r);
+}
+
+
+static ngx_int_t
+ngx_http_upstrand_response_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
+{
+    ngx_http_core_loc_conf_t         *clcf;
+    ngx_http_upstrand_main_conf_t    *mcf;
+    ngx_http_upstrand_request_ctx_t  *ctx;
+
+    clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
+
+    mcf = ngx_http_get_module_main_conf(r, ngx_http_combined_upstreams_module);
+    if (mcf->handler == NULL || mcf->handler != clcf->handler) {
+        return ngx_http_next_body_filter(r, in);
+    }
+
+    ctx = ngx_http_get_module_ctx(r->main, ngx_http_combined_upstreams_module);
+    if (ctx == NULL || !ctx->last) {
+        return ngx_http_next_body_filter(r, in);
+    }
+
+    if (ctx->last_buf) {
+        return NGX_OK;
+    }
+
+    if (in != NULL) {
+        ngx_chain_t *last = in;
+        while (last->next) {
+            last = last->next;
+        }
+        if (last->buf->last_in_chain) {
+            last->buf->last_buf = 1;
+            ctx->last_buf = 1;
+        }
+    }
+
+    return ngx_http_next_body_filter(r, in);
+}
+
+
+static ngx_int_t
+ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
+    uintptr_t data)
+{
+    ngx_http_upstrand_conf_t  *upstrand = (ngx_http_upstrand_conf_t *) data;
+
+    ngx_str_t                          val;
+    ngx_http_upstrand_request_ctx_t   *ctx;
+    ngx_int_t                         *u_elts, *bu_elts;
+    ngx_uint_t                         u_nelts, bu_nelts;
+    ngx_http_upstream_main_conf_t     *usmf;
+    ngx_http_upstream_srv_conf_t     **uscfp;
+    ngx_uint_t                         backup_cycle = 0;
+
+    ctx = ngx_http_get_module_ctx(r->main, ngx_http_combined_upstreams_module);
+
+    u_nelts = upstrand->upstreams.nelts;
+    bu_nelts = upstrand->b_upstreams.nelts;
+
+    if (ctx == NULL) {
+        ctx = ngx_pcalloc(r->pool, sizeof(ngx_http_upstrand_request_ctx_t));
+        if (ctx == NULL) {
+            return NGX_ERROR;
+        }
+
+        ctx = ngx_pcalloc(r->pool, sizeof(ngx_http_upstrand_request_ctx_t));
+        ctx->next_upstream_statuses = &upstrand->next_upstream_statuses;
+        ctx->start_cur = upstrand->cur;
+        ctx->start_bcur = upstrand->b_cur;
+        ctx->cur = upstrand->cur;
+        ctx->b_cur = upstrand->b_cur;
+
+        if (u_nelts > 0) {
+            upstrand->cur = (upstrand->cur + 1) % u_nelts;
+        } else {
+            backup_cycle = 1;
+            if (bu_nelts > 0) {
+                upstrand->b_cur = (upstrand->b_cur + 1) % bu_nelts;
+            }
+        }
+
+        ngx_http_set_ctx(r, ctx, ngx_http_combined_upstreams_module);
+
+    } else if (r != r->main) {
+
+        if (backup_cycle) {
+            if (bu_nelts > 0) {
+                ctx->b_cur = (ctx->b_cur + 1) % bu_nelts;
+            }
+        } else if (u_nelts > 0) {
+            ctx->cur = (ctx->cur + 1) % u_nelts;
+            if (ctx->cur == ctx->start_cur) {
+                backup_cycle = 1;
+            }
+        }
+    }
+
+    if ((bu_nelts == 0 &&
+         (ctx->cur + 1) % u_nelts == (ngx_uint_t) ctx->start_cur) ||
+        (backup_cycle &&
+         (ctx->b_cur + 1) % bu_nelts == (ngx_uint_t) ctx->start_bcur))
+    {
+        ctx->last = 1;
+    }
+
+    usmf = ngx_http_get_module_main_conf(r, ngx_http_upstream_module);
+    uscfp = usmf->upstreams.elts;
+
+    u_elts = upstrand->upstreams.elts;
+    bu_elts = upstrand->b_upstreams.elts;
+
+    if (backup_cycle) {
+        val = uscfp[bu_elts[ctx->b_cur]]->host;
+    } else {
+        val = uscfp[u_elts[ctx->cur]]->host;
+    }
+
+    v->valid = 1;
+    v->not_found = 0;
+    v->len = val.len;
+    v->data = val.data;
+
+    return NGX_OK;
+}
+
+
+static void *
+ngx_http_upstrand_create_main_conf(ngx_conf_t *cf)
+{
+    ngx_http_upstrand_main_conf_t  *mcf;
+
+    mcf = ngx_pcalloc(cf->pool, sizeof(ngx_http_upstrand_main_conf_t));
+    if (mcf == NULL) {
+        return NULL;
+    }
+
+    if (ngx_array_init(&mcf->upstrands, cf->pool, 1,
+        sizeof(ngx_http_upstrand_conf_t)) != NGX_OK)
+    {
+        return NULL;
+    }
+
+#ifdef UPSTRAND_ENABLE_PROXY_HANDLER
+    mcf->handler = ngx_http_proxy_handler;
+#endif
+
+    return mcf;
+}
+
+
+static char *
+ngx_http_upstrand_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+{
+    ngx_http_upstrand_main_conf_t  *mcf = conf;
+
+    char                           *rv;
+    ngx_str_t                      *value, name;
+    ngx_conf_t                      save;
+    ngx_http_variable_t            *var;
+    ngx_str_t                       var_name;
+    ngx_http_upstrand_conf_t       *upstrand;
+    ngx_http_upstrand_conf_ctx_t    ctx;
+    ngx_uint_t                      u_nelts, bu_nelts;
+
+    upstrand = ngx_array_push(&mcf->upstrands);
+    if (upstrand == NULL) {
+        return NGX_CONF_ERROR;
+    }
+
+    if (ngx_array_init(&upstrand->upstreams, cf->pool, 1, sizeof(ngx_int_t))
+        != NGX_OK
+        ||
+        ngx_array_init(&upstrand->b_upstreams, cf->pool, 1, sizeof(ngx_int_t))
+        != NGX_OK
+        ||
+        ngx_array_init(&upstrand->next_upstream_statuses, cf->pool, 1,
+            sizeof(ngx_int_t))
+        != NGX_OK)
+    {
+        return NGX_CONF_ERROR;
+    }
+
+    upstrand->cur = 0;
+    upstrand->b_cur = 0;
+    upstrand->order = ngx_http_upstrand_order_normal;
+
+    value = cf->args->elts;
+    name = value[1];
+
+    var_name.len = name.len + 9;
+    var_name.data = ngx_pnalloc(cf->pool, var_name.len);
+    if (var_name.data == NULL) {
+        return NGX_CONF_ERROR;
+    }
+
+    ngx_memcpy(var_name.data, "upstrand_", 9);
+    ngx_memcpy(var_name.data + 9, name.data, name.len);
+
+    var = ngx_http_add_variable(cf, &var_name,
+            NGX_HTTP_VAR_CHANGEABLE|NGX_HTTP_VAR_NOCACHEABLE);
+    if (var == NULL) {
+        return NGX_CONF_ERROR;
+    }
+
+    var->get_handler = ngx_http_upstrand_variable;
+    var->data = (uintptr_t) upstrand;
+
+    ctx.upstrand = upstrand;
+    ctx.cf = &save;
+
+    save = *cf;
+    cf->ctx = &ctx;
+    cf->handler = ngx_http_upstrand;
+    cf->handler_conf = conf;
+
+    rv = ngx_conf_parse(cf, NULL);
+
+    *cf = save;
+
+    if (rv != NGX_CONF_OK) {
+        return rv;
+    }
+
+    u_nelts = upstrand->upstreams.nelts;
+    bu_nelts = upstrand->b_upstreams.nelts;
+
+    if (u_nelts == 0 && bu_nelts == 0) {
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "No upstream registered in "
+            "upstrand \"%V\"", &name);
+        return NGX_CONF_ERROR;
+    }
+
+    if (upstrand->order == ngx_http_upstrand_order_start_random) {
+        if (u_nelts > 0) {
+            upstrand->cur = ngx_random() % u_nelts;
+        }
+        if (bu_nelts > 0) {
+            upstrand->b_cur = ngx_random() % bu_nelts;
+        }
+    }
+
+    return rv;
+}
+
+
+static char *
+ngx_http_upstrand(ngx_conf_t *cf, ngx_command_t *dummy, void *conf)
+{
+    ngx_uint_t                     i;
+    ngx_int_t                     *idx;
+    ngx_str_t                     *value;
+    ngx_http_upstrand_conf_ctx_t  *ctx;
+
+    value = cf->args->elts;
+    ctx = cf->ctx;
+
+    if (cf->args->nelts == 2) {
+
+        if (value[0].len == 8 && ngx_strncmp(value[0].data, "upstream", 8) == 0)
+        {
+            return ngx_http_upstrand_add_upstream(ctx->cf,
+                        &ctx->upstrand->upstreams, &value[1]);
+        }
+
+        if (value[0].len == 5 && value[1].len == 12 &&
+            ngx_strncmp(value[0].data, "order", 5) == 0 &&
+            ngx_strncmp(value[1].data, "start_random", 12) == 0)
+        {
+            ctx->upstrand->order = ngx_http_upstrand_order_start_random;
+            return NGX_CONF_OK;
+        }
+    }
+
+    if (cf->args->nelts == 3) {
+
+        if (value[0].len == 8 && value[2].len == 6 &&
+            ngx_strncmp(value[0].data, "upstream", 8) == 0 &&
+            ngx_strncmp(value[2].data, "backup", 6) == 0)
+        {
+            return ngx_http_upstrand_add_upstream(ctx->cf,
+                        &ctx->upstrand->b_upstreams, &value[1]);
+        }
+    }
+
+    if (value[0].len == 22 &&
+        ngx_strncmp(value[0].data, "next_upstream_statuses", 22) == 0)
+    {
+        for (i = 1; i < cf->args->nelts; i++) {
+            ngx_uint_t  invalid_status = 0;
+
+            idx = ngx_array_push(&ctx->upstrand->next_upstream_statuses);
+            if (idx == NULL) {
+                return NGX_CONF_ERROR;
+            }
+
+            *idx = ngx_atoi(value[i].data, value[i].len);
+
+            if (*idx == NGX_ERROR) {
+
+                if (value[i].len == 3 &&
+                    ngx_strncmp(value[i].data + 1, "xx", 2) == 0) {
+                    switch (value[i].data[0]) {
+                    case '4':
+                        *idx = -4;
+                        break;
+                    case '5':
+                        *idx = -5;
+                        break;
+                    default:
+                        invalid_status = 1;
+                        break;
+                    }
+                } else {
+                    invalid_status = 1;
+                }
+
+                if (invalid_status) {
+                    ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                        "Invalid status '%V'", &value[i]);
+                    return NGX_CONF_ERROR;
+                }
+            }
+        }
+
+        return NGX_CONF_OK;
+    }
+
+    ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "Wrong upstrand directive");
+
+    return NGX_CONF_ERROR;
+}
+
+
+static char *
+ngx_http_upstrand_add_upstream(ngx_conf_t *cf, ngx_array_t *upstreams,
+    ngx_str_t *name)
+{
+    ngx_uint_t                       i;
+    ngx_int_t                       *idx, found_idx;
+    ngx_http_upstream_main_conf_t   *usmf;
+    ngx_http_upstream_srv_conf_t   **uscfp;
+
+#if (NGX_PCRE)
+    if (name->len > 1 && name->data[0] == '~') {
+        name->len -= 1;
+        name->data += 1;
+
+        return ngx_http_upstrand_regex_add_upstream(cf, upstreams, name);
+    }
+#endif
+
+    usmf = ngx_http_conf_get_module_main_conf(cf, ngx_http_upstream_module);
+    uscfp = usmf->upstreams.elts;
+
+    found_idx = NGX_ERROR;
+
+    for (i = 0; i < usmf->upstreams.nelts; i++) {
+        if (uscfp[i]->host.len == name->len &&
+            ngx_strncasecmp(uscfp[i]->host.data, name->data, name->len) == 0) {
+            found_idx = i;
+            break;
+        }
+    }
+
+    if (found_idx == NGX_ERROR) {
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "Upstream \"%V\" is not found",
+            name);
+        return NGX_CONF_ERROR;
+    }
+
+    for (i = 0; i < upstreams->nelts; i++) {
+        ngx_int_t  *registered = upstreams->elts;
+        if (found_idx == registered[i]) {
+            return NGX_CONF_OK;
+        }
+    }
+
+    idx = ngx_array_push(upstreams);
+    if (idx == NULL) {
+        return NGX_CONF_ERROR;
+    }
+
+    *idx = found_idx;
+
+    return NGX_CONF_OK;
+}
+
+
+#if (NGX_PCRE)
+
+static char *
+ngx_http_upstrand_regex_add_upstream(ngx_conf_t *cf, ngx_array_t *upstreams,
+    ngx_str_t *name)
+{
+    ngx_uint_t                       i, j;
+    ngx_int_t                       *idx;
+    ngx_http_upstream_main_conf_t   *usmf;
+    ngx_http_upstream_srv_conf_t   **uscfp;
+    ngx_regex_compile_t              rc;
+    u_char                           errstr[NGX_MAX_CONF_ERRSTR];
+    ngx_http_regex_t                *re;
+
+    ngx_memzero(&rc, sizeof(ngx_regex_compile_t));
+    rc.pattern = *name;
+    rc.err.len = NGX_MAX_CONF_ERRSTR;
+    rc.err.data = errstr;
+
+    re = ngx_http_regex_compile(cf, &rc);
+
+    if (re == NULL) {
+        return NGX_CONF_ERROR;
+    }
+    
+    usmf = ngx_http_conf_get_module_main_conf(cf, ngx_http_upstream_module);
+    uscfp = usmf->upstreams.elts;
+
+    for (i = 0; i < usmf->upstreams.nelts; i++) {
+        ngx_uint_t  is_registered = 0;
+
+        if (ngx_regex_exec(re->regex, &uscfp[i]->host, NULL, 0)
+            != NGX_REGEX_NO_MATCHED)
+        {
+            for (j = 0; j < upstreams->nelts; j++) {
+                ngx_int_t  *registered = upstreams->elts;
+
+                if ((ngx_int_t) i == registered[j]) {
+                    is_registered = 1;
+                    break;
+                }
+            }
+
+            if (is_registered) {
+                continue;
+            }
+
+            idx = ngx_array_push(upstreams);
+            if (idx == NULL) {
+                return NGX_CONF_ERROR;
+            }
+
+            *idx = i;
+        }
+    }
+
+    return NGX_CONF_OK;
+}
+
+#endif
 
 
 static char *
