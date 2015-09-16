@@ -84,7 +84,7 @@
  *                  randomly. Next upstreams will be chosen in round-robin
  *                  manner.
  *
- *                  Such a failover between 'failure' statuses may be reached
+ *                  Such a failover between 'failure' statuses can be reached
  *                  during a single request by feeding a special variable that
  *                  starts with '$upstrand_' to the proxy_pass directive like
  *                  so:

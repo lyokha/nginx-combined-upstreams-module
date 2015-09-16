@@ -139,7 +139,7 @@ accepts only one value *start_random* which means that starting upstreams in
 normal and backup cycles after worker fired up will be chosen randomly. Next
 upstreams will be chosen in round-robin manner.
 
-Such a failover between *failure* statuses may be reached during a single
+Such a failover between *failure* statuses can be reached during a single
 request by feeding a special variable that starts with *&#36;upstrand_* to the
 *proxy_pass* directive like so:
 
