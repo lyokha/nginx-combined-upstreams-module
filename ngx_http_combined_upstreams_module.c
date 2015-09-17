@@ -536,7 +536,7 @@ ngx_http_upstrand_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     bu_nelts = upstrand->b_upstreams.nelts;
 
     if (u_nelts == 0 && bu_nelts == 0) {
-        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "No upstream registered in "
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "no upstream registered in "
             "upstrand \"%V\"", &name);
         return NGX_CONF_ERROR;
     }
@@ -637,7 +637,7 @@ ngx_http_upstrand(ngx_conf_t *cf, ngx_command_t *dummy, void *conf)
 
                 if (invalid_status) {
                     ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                        "Invalid status '%V'", &value[i]);
+                        "invalid status \"%V\"", &value[i]);
                     return NGX_CONF_ERROR;
                 }
             }
@@ -646,7 +646,7 @@ ngx_http_upstrand(ngx_conf_t *cf, ngx_command_t *dummy, void *conf)
         return NGX_CONF_OK;
     }
 
-    ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "Wrong upstrand directive");
+    ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "wrong upstrand directive");
 
     return NGX_CONF_ERROR;
 }
@@ -684,7 +684,7 @@ ngx_http_upstrand_add_upstream(ngx_conf_t *cf, ngx_array_t *upstreams,
     }
 
     if (found_idx == NGX_ERROR) {
-        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "Upstream \"%V\" is not found",
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "upstream \"%V\" is not found",
             name);
         return NGX_CONF_ERROR;
     }
