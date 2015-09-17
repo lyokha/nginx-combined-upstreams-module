@@ -94,15 +94,9 @@
  *                      proxy_pass http://$upstrand_us1;
  *                  }
  *
- *                  But this is not enough! To enjoy this behavior the module
- *                  requires access to the content handler
- *                  'ngx_http_proxy_handler' of the proxy module which is not
- *                  normally feasible to achieve due to its static scope. To
- *                  enable the machinery one have to remove the keyword 'static'
- *                  from the handler definition inside the nginx source file
- *                  src/http/modules/ngx_httpproxy_module.c and also to add
- *                  macro definition 'UPSTRAND_ENABLE_PROXY_HANDLER' when
- *                  building this module.
+ *                  But be careful when accessing this variable from other
+ *                  directives! It starts up the subrequests machinery which may
+ *                  be not desirable in many cases.
  *
  *        Version:  1.0
  *        Created:  05.10.2011 16:06:15
@@ -121,7 +115,6 @@
 
 typedef struct {
     ngx_array_t                upstrands;
-    ngx_http_handler_pt        handler;
 } ngx_http_upstrand_main_conf_t;
 
 
@@ -158,13 +151,8 @@ typedef struct {
 } ngx_http_upstrand_request_ctx_t;
 
 
-#ifdef UPSTRAND_ENABLE_PROXY_HANDLER
-ngx_int_t ngx_http_proxy_handler(ngx_http_request_t *r);
-#endif
-
 static ngx_int_t ngx_http_upstrand_init(ngx_conf_t *cf);
 static void *ngx_http_upstrand_create_main_conf(ngx_conf_t *cf);
-static ngx_int_t ngx_http_upstrand_content_phase_handler(ngx_http_request_t *r);
 static ngx_int_t ngx_http_upstrand_response_header_filter(
     ngx_http_request_t *r);
 static ngx_int_t ngx_http_upstrand_response_body_filter(ngx_http_request_t *r,
@@ -251,20 +239,6 @@ ngx_module_t  ngx_http_combined_upstreams_module = {
 static ngx_int_t
 ngx_http_upstrand_init(ngx_conf_t *cf)
 {
-#ifdef UPSTRAND_ENABLE_PROXY_HANDLER
-    ngx_http_handler_pt        *h;
-    ngx_http_core_main_conf_t  *cmcf;
-
-    cmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_core_module);
-
-    h = ngx_array_push(&cmcf->phases[NGX_HTTP_CONTENT_PHASE].handlers);
-    if (h == NULL) {
-        return NGX_ERROR;
-    }
-
-    *h = ngx_http_upstrand_content_phase_handler;
-#endif
-
     ngx_http_next_header_filter = ngx_http_top_header_filter;
     ngx_http_top_header_filter = ngx_http_upstrand_response_header_filter;
 
@@ -276,39 +250,15 @@ ngx_http_upstrand_init(ngx_conf_t *cf)
 
 
 static ngx_int_t
-ngx_http_upstrand_content_phase_handler(ngx_http_request_t *r)
-{
-    ngx_http_core_loc_conf_t         *clcf;
-    ngx_http_upstrand_main_conf_t    *mcf;
-
-    clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
-
-    mcf = ngx_http_get_module_main_conf(r, ngx_http_combined_upstreams_module);
-    if (mcf->handler != NULL && mcf->handler == clcf->handler) {
-        return mcf->handler(r);
-    }
-}
-
-
-static ngx_int_t
 ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
 {
     ngx_uint_t                        i;
-    ngx_http_core_loc_conf_t         *clcf;
-    ngx_http_upstrand_main_conf_t    *mcf;
     ngx_http_upstrand_request_ctx_t  *ctx;
     ngx_int_t                         status;
     ngx_http_request_t               *sr;
     ngx_str_t                         uri;
     ngx_int_t                        *next_upstream_statuses;
     ngx_uint_t                        is_next_upstream_status;
-
-    clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
-
-    mcf = ngx_http_get_module_main_conf(r, ngx_http_combined_upstreams_module);
-    if (mcf->handler == NULL || mcf->handler != clcf->handler) {
-        return ngx_http_next_header_filter(r);
-    }
 
     ctx = ngx_http_get_module_ctx(r->main, ngx_http_combined_upstreams_module);
     if (ctx == NULL) {
@@ -370,16 +320,7 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
 static ngx_int_t
 ngx_http_upstrand_response_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
 {
-    ngx_http_core_loc_conf_t         *clcf;
-    ngx_http_upstrand_main_conf_t    *mcf;
     ngx_http_upstrand_request_ctx_t  *ctx;
-
-    clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
-
-    mcf = ngx_http_get_module_main_conf(r, ngx_http_combined_upstreams_module);
-    if (mcf->handler == NULL || mcf->handler != clcf->handler) {
-        return ngx_http_next_body_filter(r, in);
-    }
 
     ctx = ngx_http_get_module_ctx(r->main, ngx_http_combined_upstreams_module);
     if (ctx == NULL || !ctx->last) {
@@ -506,10 +447,6 @@ ngx_http_upstrand_create_main_conf(ngx_conf_t *cf)
     {
         return NULL;
     }
-
-#ifdef UPSTRAND_ENABLE_PROXY_HANDLER
-    mcf->handler = ngx_http_proxy_handler;
-#endif
 
     return mcf;
 }

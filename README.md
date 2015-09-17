@@ -150,12 +150,8 @@ location /us1 {
 }
 ```
 
-But this is not enough! To enjoy this behavior the module requires access to
-the content handler *ngx_http_proxy_handler* of the proxy module which is not
-normally feasible to achieve due to its static scope. To enable the machinery
-one have to remove the keyword *static* from the handler definition inside the
-nginx source file *src/http/modules/ngx_httpproxy_module.c* and also to add
-macro definition *UPSTRAND_ENABLE_PROXY_HANDLER* when building this module.
+But be careful when accessing this variable from other directives! It starts up
+the subrequests machinery which may be not desirable in many cases.
 
 ### Where this can be useful
 
