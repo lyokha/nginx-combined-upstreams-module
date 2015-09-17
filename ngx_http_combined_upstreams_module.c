@@ -131,6 +131,7 @@ typedef struct {
     ngx_int_t                  cur;
     ngx_int_t                  b_cur;
     ngx_http_upstrand_order_e  order;
+    ngx_uint_t                 debug_with_echo:1;
 } ngx_http_upstrand_conf_t;
 
 
@@ -148,6 +149,7 @@ typedef struct {
     ngx_int_t                  b_cur;
     ngx_uint_t                 last:1;
     ngx_uint_t                 last_buf:1;
+    ngx_uint_t                 debug_with_echo:1;
 } ngx_http_upstrand_request_ctx_t;
 
 
@@ -328,7 +330,11 @@ ngx_http_upstrand_response_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
     }
 
     if (ctx->last_buf) {
-        return NGX_OK;
+        if (ctx->debug_with_echo) {
+            return ngx_http_next_body_filter(r, NULL);
+        } else {
+            return NGX_OK;
+        }
     }
 
     if (in != NULL) {
@@ -377,6 +383,7 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
         ctx->start_bcur = upstrand->b_cur;
         ctx->cur = upstrand->cur;
         ctx->b_cur = upstrand->b_cur;
+        ctx->debug_with_echo = upstrand->debug_with_echo;
 
         if (u_nelts > 0) {
             upstrand->cur = (upstrand->cur + 1) % u_nelts;
@@ -557,6 +564,16 @@ ngx_http_upstrand(ngx_conf_t *cf, ngx_command_t *dummy, void *conf)
 
     value = cf->args->elts;
     ctx = cf->ctx;
+
+    if (cf->args->nelts == 1) {
+
+        if (value[0].len == 15 &&
+            ngx_strncmp(value[0].data, "debug_with_echo", 15) == 0)
+        {
+            ctx->upstrand->debug_with_echo = 1;
+            return NGX_CONF_OK;
+        }
+    }
 
     if (cf->args->nelts == 2) {
 
