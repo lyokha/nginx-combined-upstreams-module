@@ -131,7 +131,7 @@ typedef struct {
     ngx_int_t                  cur;
     ngx_int_t                  b_cur;
     ngx_http_upstrand_order_e  order;
-    ngx_uint_t                 debug_with_echo:1;
+    ngx_uint_t                 debug_intermediate_stages:1;
 } ngx_http_upstrand_conf_t;
 
 
@@ -149,7 +149,7 @@ typedef struct {
     ngx_int_t                  b_cur;
     ngx_uint_t                 last:1;
     ngx_uint_t                 last_buf:1;
-    ngx_uint_t                 debug_with_echo:1;
+    ngx_uint_t                 debug_intermediate_stages:1;
 } ngx_http_upstrand_request_ctx_t;
 
 
@@ -333,7 +333,7 @@ ngx_http_upstrand_response_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
         return NGX_OK;
     }
 
-    if (!ctx->debug_with_echo && in != NULL) {
+    if (!ctx->debug_intermediate_stages && in != NULL) {
         ngx_chain_t *last = in;
         while (last->next) {
             last = last->next;
@@ -379,7 +379,7 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
         ctx->start_bcur = upstrand->b_cur;
         ctx->cur = upstrand->cur;
         ctx->b_cur = upstrand->b_cur;
-        ctx->debug_with_echo = upstrand->debug_with_echo;
+        ctx->debug_intermediate_stages = upstrand->debug_intermediate_stages;
 
         if (u_nelts > 0) {
             upstrand->cur = (upstrand->cur + 1) % u_nelts;
@@ -563,10 +563,10 @@ ngx_http_upstrand(ngx_conf_t *cf, ngx_command_t *dummy, void *conf)
 
     if (cf->args->nelts == 1) {
 
-        if (value[0].len == 15 &&
-            ngx_strncmp(value[0].data, "debug_with_echo", 15) == 0)
+        if (value[0].len == 25 &&
+            ngx_strncmp(value[0].data, "debug_intermediate_stages", 25) == 0)
         {
-            ctx->upstrand->debug_with_echo = 1;
+            ctx->upstrand->debug_intermediate_stages = 1;
             return NGX_CONF_OK;
         }
     }
