@@ -330,14 +330,10 @@ ngx_http_upstrand_response_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
     }
 
     if (ctx->last_buf) {
-        if (ctx->debug_with_echo) {
-            return ngx_http_next_body_filter(r, NULL);
-        } else {
-            return NGX_OK;
-        }
+        return NGX_OK;
     }
 
-    if (in != NULL) {
+    if (!ctx->debug_with_echo && in != NULL) {
         ngx_chain_t *last = in;
         while (last->next) {
             last = last->next;
