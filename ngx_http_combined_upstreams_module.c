@@ -336,7 +336,11 @@ ngx_http_upstrand_response_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
     }
 
     if (ctx->last_buf) {
-        return NGX_OK;
+        /* FIXME: alternatively we could return NGX_OK but in this case
+         * r->buffered and r->postponed must be unset: would it be enough in all
+         * cases? On the other hand, is returning NGX_ERROR good in all cases
+         * too? */
+        return NGX_ERROR;
     }
 
     if (!ctx->debug_intermediate_stages && in != NULL) {
