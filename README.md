@@ -134,14 +134,18 @@ upstrand us1 {
 Upstrand *us1* will combine all upstreams whose names start with *u0* and
 upstream *b01* as backup. Backup upstreams are checked if all normal upstreams
 fail. The *failure* means that all upstreams in normal or backup cycles have
-answered with statuses listed in directive *next_upstream_statuses*. The
+responded with statuses listed in directive *next_upstream_statuses*. The
 directive accepts *4xx* and *5xx* statuses notation. Directive *order* currently
 accepts only one value *start_random* which means that starting upstreams in
-normal and backup cycles after worker fired up will be chosen randomly. Next
-upstreams will be chosen in round-robin manner.
+normal and backup cycles after worker fired up will be chosen randomly. Starting
+upstreams for further requests will be cycled in round-robin manner.
+Additionally, a modifier *per_request* is also accepted in the *order*
+directive: it turns off the global per-worker round-robin cycle. The combination
+of *per_request* and *start_random* makes the starting upstream for every new
+request be chosen randomly.
 
 Such a failover between *failure* statuses can be reached during a single
-request by feeding a special variable that starts with *&#36;upstrand_* to the
+request by feeding a special variable that starts with *upstrand_* to the
 *proxy_pass* directive like so:
 
 ```nginx

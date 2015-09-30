@@ -76,19 +76,23 @@
  *                  Upstrand 'us1' will combine all upstreams whose names start
  *                  with 'u0' and upstream 'b01' as backup. Backup upstreams are
  *                  checked if all normal upstreams fail. The 'failure' means
- *                  that all upstreams in normal or backup cycles have answered
+ *                  that all upstreams in normal or backup cycles have responded
  *                  with statuses listed in directive 'next_upstream_statuses'.
  *                  The directive accepts '4xx' and '5xx' statuses notation.
  *                  Directive 'order' currently accepts only one value
  *                  'start_random' which means that starting upstreams in normal
  *                  and backup cycles after worker fired up will be chosen
- *                  randomly. Next upstreams will be chosen in round-robin
- *                  manner.
+ *                  randomly. Starting upstreams for further requests will be
+ *                  cycled in round-robin manner. Additionally, a modifier
+ *                  'per_request' is also accepted in the 'order' directive: it
+ *                  turns off the global per-worker round-robin cycle. The
+ *                  combination of 'per_request' and 'start_random' makes
+ *                  the starting upstream for every new request be chosen
+ *                  randomly.
  *
  *                  Such a failover between 'failure' statuses can be reached
  *                  during a single request by feeding a special variable that
- *                  starts with '$upstrand_' to the proxy_pass directive like
- *                  so:
+ *                  starts with 'upstrand_' to the proxy_pass directive like so:
  *
  *                  location /us1 {
  *                      proxy_pass http://$upstrand_us1;
@@ -131,6 +135,7 @@ typedef struct {
     ngx_int_t                  cur;
     ngx_int_t                  b_cur;
     ngx_http_upstrand_order_e  order;
+    ngx_uint_t                 order_per_request:1;
     ngx_uint_t                 debug_intermediate_stages:1;
 } ngx_http_upstrand_conf_t;
 
@@ -138,6 +143,7 @@ typedef struct {
 typedef struct {
     ngx_http_upstrand_conf_t  *upstrand;
     ngx_conf_t                *cf;
+    ngx_uint_t                 order_done:1;
 } ngx_http_upstrand_conf_ctx_t;
 
 
@@ -375,17 +381,26 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
 
         ctx = ngx_pcalloc(r->pool, sizeof(ngx_http_upstrand_request_ctx_t));
         ctx->next_upstream_statuses = &upstrand->next_upstream_statuses;
-        ctx->start_cur = upstrand->cur;
-        ctx->start_bcur = upstrand->b_cur;
-        ctx->cur = upstrand->cur;
-        ctx->b_cur = upstrand->b_cur;
+        if (upstrand->order_per_request &&
+            upstrand->order == ngx_http_upstrand_order_start_random)
+        {
+            ctx->start_cur = ngx_random() % u_nelts;
+            ctx->start_bcur = ngx_random() % bu_nelts;
+        } else {
+            ctx->start_cur = upstrand->cur;
+            ctx->start_bcur = upstrand->b_cur;
+        }
+        ctx->cur = ctx->start_cur;
+        ctx->b_cur = ctx->start_bcur;
         ctx->debug_intermediate_stages = upstrand->debug_intermediate_stages;
 
         if (u_nelts > 0) {
-            upstrand->cur = (upstrand->cur + 1) % u_nelts;
+            if (!upstrand->order_per_request) {
+                upstrand->cur = (upstrand->cur + 1) % u_nelts;
+            }
         } else {
             backup_cycle = 1;
-            if (bu_nelts > 0) {
+            if (bu_nelts > 0 && !upstrand->order_per_request) {
                 upstrand->b_cur = (upstrand->b_cur + 1) % bu_nelts;
             }
         }
@@ -446,7 +461,7 @@ ngx_http_upstrand_create_main_conf(ngx_conf_t *cf)
     }
 
     if (ngx_array_init(&mcf->upstrands, cf->pool, 1,
-        sizeof(ngx_http_upstrand_conf_t)) != NGX_OK)
+                       sizeof(ngx_http_upstrand_conf_t)) != NGX_OK)
     {
         return NULL;
     }
@@ -473,6 +488,7 @@ ngx_http_upstrand_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     if (upstrand == NULL) {
         return NGX_CONF_ERROR;
     }
+    ngx_memzero(upstrand, sizeof(ngx_http_upstrand_conf_t));
 
     if (ngx_array_init(&upstrand->upstreams, cf->pool, 1, sizeof(ngx_int_t))
         != NGX_OK
@@ -481,14 +497,12 @@ ngx_http_upstrand_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         != NGX_OK
         ||
         ngx_array_init(&upstrand->next_upstream_statuses, cf->pool, 1,
-            sizeof(ngx_int_t))
+                       sizeof(ngx_int_t))
         != NGX_OK)
     {
         return NGX_CONF_ERROR;
     }
 
-    upstrand->cur = 0;
-    upstrand->b_cur = 0;
     upstrand->order = ngx_http_upstrand_order_normal;
 
     value = cf->args->elts;
@@ -504,7 +518,7 @@ ngx_http_upstrand_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     ngx_memcpy(var_name.data + 9, name.data, name.len);
 
     var = ngx_http_add_variable(cf, &var_name,
-            NGX_HTTP_VAR_CHANGEABLE|NGX_HTTP_VAR_NOCACHEABLE);
+                            NGX_HTTP_VAR_CHANGEABLE|NGX_HTTP_VAR_NOCACHEABLE);
     if (var == NULL) {
         return NGX_CONF_ERROR;
     }
@@ -514,6 +528,7 @@ ngx_http_upstrand_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
     ctx.upstrand = upstrand;
     ctx.cf = &save;
+    ctx.order_done = 0;
 
     save = *cf;
     cf->ctx = &ctx;
@@ -533,11 +548,13 @@ ngx_http_upstrand_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
     if (u_nelts == 0 && bu_nelts == 0) {
         ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "no upstream registered in "
-            "upstrand \"%V\"", &name);
+                           "upstrand \"%V\"", &name);
         return NGX_CONF_ERROR;
     }
 
-    if (upstrand->order == ngx_http_upstrand_order_start_random) {
+    if (upstrand->order == ngx_http_upstrand_order_start_random &&
+        !upstrand->order_per_request)
+    {
         if (u_nelts > 0) {
             upstrand->cur = ngx_random() % u_nelts;
         }
@@ -557,12 +574,12 @@ ngx_http_upstrand(ngx_conf_t *cf, ngx_command_t *dummy, void *conf)
     ngx_int_t                     *idx;
     ngx_str_t                     *value;
     ngx_http_upstrand_conf_ctx_t  *ctx;
+    ngx_uint_t                     check_order = 0;
 
     value = cf->args->elts;
     ctx = cf->ctx;
 
     if (cf->args->nelts == 1) {
-
         if (value[0].len == 25 &&
             ngx_strncmp(value[0].data, "debug_intermediate_stages", 25) == 0)
         {
@@ -572,30 +589,65 @@ ngx_http_upstrand(ngx_conf_t *cf, ngx_command_t *dummy, void *conf)
     }
 
     if (cf->args->nelts == 2) {
-
         if (value[0].len == 8 && ngx_strncmp(value[0].data, "upstream", 8) == 0)
         {
             return ngx_http_upstrand_add_upstream(ctx->cf,
                         &ctx->upstrand->upstreams, &value[1]);
         }
-
-        if (value[0].len == 5 && value[1].len == 12 &&
-            ngx_strncmp(value[0].data, "order", 5) == 0 &&
-            ngx_strncmp(value[1].data, "start_random", 12) == 0)
-        {
-            ctx->upstrand->order = ngx_http_upstrand_order_start_random;
-            return NGX_CONF_OK;
-        }
+        check_order = 1;
     }
 
     if (cf->args->nelts == 3) {
-
         if (value[0].len == 8 && value[2].len == 6 &&
             ngx_strncmp(value[0].data, "upstream", 8) == 0 &&
             ngx_strncmp(value[2].data, "backup", 6) == 0)
         {
             return ngx_http_upstrand_add_upstream(ctx->cf,
                         &ctx->upstrand->b_upstreams, &value[1]);
+        }
+        check_order = 1;
+    }
+
+    if (check_order) {
+
+        if (value[0].len == 5 && ngx_strncmp(value[0].data, "order", 5) == 0) {
+            ngx_uint_t per_request_done = 0;
+
+            if (ctx->order_done) {
+                ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                                   "duplicate upstrand directive \"order\"");
+                return NGX_CONF_ERROR;
+            }
+
+            for (i = 1; i < cf->args->nelts; i++) {
+
+                if (value[i].len == 12 &&
+                    ngx_strncmp(value[i].data, "start_random", 12) == 0)
+                {
+                    ctx->upstrand->order = ngx_http_upstrand_order_start_random;
+                }
+
+                if (value[i].len == 11 &&
+                    ngx_strncmp(value[i].data, "per_request", 11) == 0)
+                {
+                    if (per_request_done) {
+                        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                                    "bad upstrand directive \"order\" content");
+                        return NGX_CONF_ERROR;
+                    }
+                    ctx->upstrand->order_per_request = 1;
+                    per_request_done = 1;
+                }
+            }
+
+            if (cf->args->nelts == 3 && !per_request_done) {
+                ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                                   "bad upstrand directive \"order\" content");
+                return NGX_CONF_ERROR;
+            }
+
+            ctx->order_done = 1;
+            return NGX_CONF_OK;
         }
     }
 
@@ -633,7 +685,7 @@ ngx_http_upstrand(ngx_conf_t *cf, ngx_command_t *dummy, void *conf)
 
                 if (invalid_status) {
                     ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                        "invalid status \"%V\"", &value[i]);
+                                       "invalid status \"%V\"", &value[i]);
                     return NGX_CONF_ERROR;
                 }
             }
@@ -642,7 +694,7 @@ ngx_http_upstrand(ngx_conf_t *cf, ngx_command_t *dummy, void *conf)
         return NGX_CONF_OK;
     }
 
-    ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "wrong upstrand directive");
+    ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "bad upstrand directive");
 
     return NGX_CONF_ERROR;
 }
@@ -681,7 +733,7 @@ ngx_http_upstrand_add_upstream(ngx_conf_t *cf, ngx_array_t *upstreams,
 
     if (found_idx == NGX_ERROR) {
         ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "upstream \"%V\" is not found",
-            name);
+                           name);
         return NGX_CONF_ERROR;
     }
 
