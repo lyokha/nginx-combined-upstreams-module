@@ -5,103 +5,6 @@
  *
  *    Description:  nginx module for building combined upstreams
  *
- *                  The module introduces two directives 'add_upstream' and
- *                  'combine_server_singlets' available inside upstream
- *                  configuration blocks and a new configuration block
- *                  'upstrand' for building super-layers of upstreams.
- *
- *                  Directive 'add_upstream'
- *                  ------------------------
- *                  Populates the host upstream with servers listed in an
- *                  already defined upstream specified by the mandatory 1st
- *                  parameter of the directive. Optional 2nd parameter may have
- *                  only value 'backup' which marks all servers of the sourced
- *                  upstream as backups.
- *
- *                  An example:
- *
- *                  upstream  combined {
- *                      add_upstream    upstream1;            # src upstream 1
- *                      add_upstream    upstream2;            # src upstream 2
- *                      server          some_another_server;  # if needed
- *                      add_upstream    upstream3 backup;     # src upstream 3
- *                  }
- *
- *                  Directive 'combine_server_singlets'
- *                  -----------------------------------
- *                  Produces multiple 'singlet' upstreams from servers so far
- *                  defined in the host upstream. A 'singlet' upstream contains
- *                  only one active server whereas other servers are marked as
- *                  backups. If no parameters were passed then the singlet
- *                  upstreams will have names of the host upstream appended by
- *                  the ordering number of the active server in the host
- *                  upstream. Optional 2 parameters can be used to adjust their
- *                  names. The 1st parameter is a suffix added after the name of
- *                  the host upstream and before the ordering number. The 2nd
- *                  parameter must be an integer value which defines
- *                  'zero-alignment' of the ordering number, for example if it
- *                  has value 2 then the ordering numbers could be
- *                  '01', '02', ..., '10', ... '100' ...
- *
- *                  An example:
- *
- *                  upstream  uhost {
- *                      server                   s1;
- *                      server                   s2;
- *                      server                   s3 backup;
- *                      server                   s4;
- *                      # build singlet upstreams uhost_single_01,
- *                      # uhost_single_02, uhost_single_03 and uhost_single_04
- *                      combine_server_singlets  _single_ 2;
- *                  }
- *
- *                  Block 'upstrand'
- *                  ---------------
- *                  Is aimed to configure a super-layer of upstreams which do
- *                  not lose their identities. Accepts directives 'upstream',
- *                  'order' and 'next_upstream_statuses'. Upstreams with names
- *                  starting with tilde ('~') match a regular expression. Only
- *                  upstreams that already have been declared before the
- *                  upstrand block definition will be regarded as candidates.
- *
- *                  An example:
- *
- *                  upstrand us1 {
- *                      upstream ~^u0;
- *                      upstream b01 backup;
- *                      order start_random;
- *                      next_upstream_statuses 204 5xx;
- *                  }
- *
- *                  Upstrand 'us1' will combine all upstreams whose names start
- *                  with 'u0' and upstream 'b01' as backup. Backup upstreams are
- *                  checked if all normal upstreams fail. The 'failure' means
- *                  that all upstreams in normal or backup cycles have responded
- *                  with statuses listed in directive 'next_upstream_statuses'.
- *                  The directive accepts '4xx' and '5xx' statuses notation.
- *                  Directive 'order' currently accepts only one value
- *                  'start_random' which means that starting upstreams in normal
- *                  and backup cycles after worker fired up will be chosen
- *                  randomly. Starting upstreams in further requests will be
- *                  cycled in round-robin manner. Additionally, a modifier
- *                  'per_request' is also accepted in the 'order' directive: it
- *                  turns off the global per-worker round-robin cycle. The
- *                  combination of 'per_request' and 'start_random' makes
- *                  the starting upstream in every new request be chosen
- *                  randomly.
- *
- *                  Such a failover between 'failure' statuses can be reached
- *                  during a single request by feeding a special variable that
- *                  starts with 'upstrand_' to the proxy_pass directive like so:
- *
- *                  location /us1 {
- *                      proxy_pass http://$upstrand_us1;
- *                  }
- *
- *                  But be careful when accessing this variable from other
- *                  directives! It starts up the subrequests machinery which may
- *                  be not desirable in many cases.
- *
  *        Version:  1.0
  *        Created:  05.10.2011 16:06:15
  *
@@ -111,7 +14,6 @@
  * =============================================================================
  */
 
-
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
@@ -120,6 +22,11 @@
 typedef struct {
     ngx_array_t                upstrands;
 } ngx_http_upstrand_main_conf_t;
+
+
+typedef struct {
+    ngx_array_t                dyn_upstrands;
+} ngx_http_upstrand_loc_conf_t;
 
 
 typedef enum {
@@ -159,8 +66,23 @@ typedef struct {
 } ngx_http_upstrand_request_ctx_t;
 
 
+typedef struct {
+    ngx_str_t                  key;
+    ngx_int_t                  index;
+}  ngx_http_cu_varhandle_t;
+
+
+typedef struct {
+    ngx_array_t                data;
+    ngx_int_t                  index;
+} ngx_http_cu_varlist_elem_t;
+
+
 static ngx_int_t ngx_http_upstrand_init(ngx_conf_t *cf);
 static void *ngx_http_upstrand_create_main_conf(ngx_conf_t *cf);
+static void *ngx_http_upstrand_create_loc_conf(ngx_conf_t *cf);
+static char *ngx_http_upstrand_merge_loc_conf(ngx_conf_t *cf,
+    void *parent, void *child);
 static ngx_int_t ngx_http_upstrand_response_header_filter(
     ngx_http_request_t *r);
 static ngx_int_t ngx_http_upstrand_response_body_filter(ngx_http_request_t *r,
@@ -169,6 +91,8 @@ static char *ngx_http_upstrand_block(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
 static char *ngx_http_upstrand(ngx_conf_t *cf, ngx_command_t *dummy,
     void *conf);
+static char *ngx_http_dynamic_upstrand(ngx_conf_t *cf, ngx_command_t *cmd,
+    void *conf);
 static char *ngx_http_upstrand_add_upstream(ngx_conf_t *cf,
     ngx_array_t *upstreams, ngx_str_t *name);
 #if (NGX_PCRE)
@@ -176,6 +100,8 @@ static char *ngx_http_upstrand_regex_add_upstream(ngx_conf_t *cf,
     ngx_array_t *upstreams, ngx_str_t *name);
 #endif
 static ngx_int_t ngx_http_upstrand_variable(ngx_http_request_t *r,
+    ngx_http_variable_value_t *v, uintptr_t data);
+static ngx_int_t ngx_http_get_dynamic_upstrand_value(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
 
 static char *ngx_http_add_upstream(ngx_conf_t *cf,
@@ -208,6 +134,12 @@ static ngx_command_t  ngx_http_combined_upstreams_commands[] = {
       NGX_HTTP_MAIN_CONF_OFFSET,
       0,
       NULL },
+    { ngx_string("dynamic_upstrand"),
+      NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_2MORE,
+      ngx_http_dynamic_upstrand,
+      NGX_HTTP_LOC_CONF_OFFSET,
+      0,
+      NULL },
 
       ngx_null_command
 };
@@ -223,8 +155,8 @@ static ngx_http_module_t  ngx_http_combined_upstreams_module_ctx = {
     NULL,                                    /* create server configuration */
     NULL,                                    /* merge server configuration */
 
-    NULL,                                    /* create location configuration */
-    NULL                                     /* merge location configuration */
+    ngx_http_upstrand_create_loc_conf,       /* create location configuration */
+    ngx_http_upstrand_merge_loc_conf         /* merge location configuration */
 };
 
 
@@ -268,6 +200,7 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
     ngx_int_t                        *next_upstream_statuses;
     ngx_uint_t                        is_next_upstream_status;
 
+
     ctx = ngx_http_get_module_ctx(r->main, ngx_http_combined_upstreams_module);
     if (ctx == NULL) {
         return ngx_http_next_header_filter(r);
@@ -292,16 +225,9 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
     }
 
     if (is_next_upstream_status && !ctx->last) {
-        uri.data = ngx_pnalloc(r->pool, r->main->uri.len);
-        if (uri.data == NULL) {
-            return NGX_ERROR;
-        }
-
-        uri.len  = r->main->uri.len;
-
-        ngx_memcpy(uri.data, r->main->uri.data, r->main->uri.len);
-
-        if (ngx_http_subrequest(r, &uri, NULL, &sr, NULL, 0) != NGX_OK) {
+        if (ngx_http_subrequest(r, &r->main->uri, &r->main->args, &sr, NULL, 0)
+            != NGX_OK)
+        {
             return NGX_ERROR;
         }
 
@@ -455,6 +381,97 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
 }
 
 
+static ngx_int_t
+ngx_http_get_dynamic_upstrand_value(ngx_http_request_t *r,
+    ngx_http_variable_value_t *v, uintptr_t  data)
+{
+    ngx_uint_t                     i;
+    ngx_int_t                     *index = (ngx_int_t *) data;
+    ngx_int_t                      found_idx = NGX_ERROR;
+    ngx_http_upstrand_loc_conf_t  *lcf;
+    ngx_array_t                   *upstrands;
+    ngx_http_cu_varlist_elem_t    *upstrands_elts;
+    ngx_array_t                   *upstrand_cands;
+    ngx_http_cu_varhandle_t       *upstrand_cands_elts;
+    ngx_http_variable_value_t     *upstrand_var = NULL;
+    ngx_str_t                      upstrand_var_name;
+
+    if (index == NULL) {
+        return NGX_ERROR;
+    }
+
+    lcf = ngx_http_get_module_loc_conf(r, ngx_http_combined_upstreams_module);
+
+    upstrands = &lcf->dyn_upstrands;
+    upstrands_elts = upstrands->elts;
+
+    for (i = 0; i < upstrands->nelts; i++) {
+        if (*index != upstrands_elts[i].index) {
+            continue;
+        }
+        found_idx = i;
+        break;
+    }
+
+    if (found_idx == NGX_ERROR) {
+        return NGX_ERROR;
+    }
+
+    upstrand_cands = &upstrands_elts[found_idx].data;
+    upstrand_cands_elts = upstrand_cands->elts;
+
+    for (i = 0; i < upstrand_cands->nelts; i++) {
+        ngx_int_t                   key;
+        ngx_str_t                   var_name;
+        ngx_http_variable_value_t  *found = NULL;
+
+        if (upstrand_cands_elts[i].index == NGX_ERROR) {
+            var_name = upstrand_cands_elts[i].key;
+        } else {
+            found = ngx_http_get_indexed_variable(r,
+                                                  upstrand_cands_elts[i].index);
+            if (found == NULL || found->len == 0) {
+                continue;
+            }
+
+            var_name.len = found->len;
+            var_name.data = found->data;
+        }
+
+        upstrand_var_name.len = var_name.len + 9;
+        upstrand_var_name.data = ngx_pnalloc(r->pool, upstrand_var_name.len);
+        if (upstrand_var_name.data == NULL) {
+            return NGX_ERROR;
+        }
+
+        ngx_memcpy(upstrand_var_name.data, "upstrand_", 9);
+        ngx_memcpy(upstrand_var_name.data + 9, var_name.data, var_name.len);
+
+        key = ngx_hash_strlow(upstrand_var_name.data, upstrand_var_name.data,
+                              upstrand_var_name.len);
+
+        upstrand_var = ngx_http_get_variable(r, &upstrand_var_name, key);
+        if (upstrand_var == NULL) {
+            return NGX_ERROR;
+        }
+
+        break;
+    }
+
+    if (v == NULL) {
+        v->len = 0;
+        v->data = (u_char *) "";
+        v->valid = 1;
+        v->no_cacheable = 0;
+        v->not_found = 0;
+    } else {
+        *v = *upstrand_var;
+    }
+
+    return NGX_OK;
+}
+
+
 static void *
 ngx_http_upstrand_create_main_conf(ngx_conf_t *cf)
 {
@@ -472,6 +489,49 @@ ngx_http_upstrand_create_main_conf(ngx_conf_t *cf)
     }
 
     return mcf;
+}
+
+
+static void *
+ngx_http_upstrand_create_loc_conf(ngx_conf_t *cf)
+{
+    ngx_http_upstrand_loc_conf_t  *lcf;
+
+    lcf = ngx_pcalloc(cf->pool, sizeof(ngx_http_upstrand_loc_conf_t));
+    if (lcf == NULL) {
+        return NULL;
+    }
+
+    if (ngx_array_init(&lcf->dyn_upstrands, cf->pool, 1,
+                       sizeof(ngx_http_cu_varlist_elem_t)) != NGX_OK)
+    {
+        return NULL;
+    }
+
+    return lcf;
+}
+
+
+static char *
+ngx_http_upstrand_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
+{
+    ngx_http_upstrand_loc_conf_t *prev = parent;
+    ngx_http_upstrand_loc_conf_t *conf = child;
+
+    ngx_uint_t                    i;
+
+    for (i = 0; i < prev->dyn_upstrands.nelts; i++) {
+        ngx_http_cu_varlist_elem_t  *elem;
+        
+        elem = ngx_array_push(&conf->dyn_upstrands);
+        if (elem == NULL) {
+            return NGX_CONF_ERROR;
+        }
+
+        *elem = ((ngx_http_cu_varlist_elem_t *) prev->dyn_upstrands.elts)[i];
+    }
+
+    return NGX_CONF_OK;
 }
 
 
@@ -706,6 +766,97 @@ ngx_http_upstrand(ngx_conf_t *cf, ngx_command_t *dummy, void *conf)
 
 
 static char *
+ngx_http_dynamic_upstrand(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+{
+    ngx_http_upstrand_loc_conf_t  *lcf = conf;
+
+    ngx_uint_t                     i;
+    ngx_str_t                     *value;
+    ngx_http_variable_t           *v;
+    ngx_http_cu_varlist_elem_t    *resvar;
+    ngx_int_t                      v_idx;
+    ngx_uint_t                    *v_idx_ptr;
+
+    value = cf->args->elts;
+
+    if (value[1].len < 2 || value[1].data[0] != '$') {
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                           "invalid variable name \"%V\"", &value[1]);
+        return NGX_CONF_ERROR;
+    }
+
+    value[1].len--;
+    value[1].data++;
+
+    resvar = ngx_array_push(&lcf->dyn_upstrands);
+    if (resvar == NULL) {
+        return NGX_CONF_ERROR;
+    }
+
+    if (ngx_array_init(&resvar->data, cf->pool, cf->args->nelts - 2,
+                       sizeof(ngx_http_cu_varhandle_t)) != NGX_OK)
+    {
+        return NGX_CONF_ERROR;
+    }
+
+    for (i = 2; i < cf->args->nelts; i++) {
+        ngx_http_cu_varhandle_t  *res;
+        ngx_int_t                 index = NGX_ERROR;
+        ngx_uint_t                isvar;
+
+        res = ngx_array_push(&resvar->data);
+        if (res == NULL) {
+            return NGX_CONF_ERROR;
+        }
+
+        isvar = value[i].len > 1 && value[i].data[0] == '$' ? 1 : 0;
+        if (!isvar) {
+            res->index = index;
+            res->key = value[i];
+            break;
+        }
+
+        value[i].len--;
+        value[i].data++;
+
+        index = ngx_http_get_variable_index(cf, &value[i]);
+        if (index == NGX_ERROR) {
+            return NGX_CONF_ERROR;
+        }
+
+        res->index = index;
+        res->key = value[i];
+    }
+
+    v = ngx_http_add_variable(cf, &value[1], NGX_HTTP_VAR_CHANGEABLE);
+
+    if (v == NULL) {
+        return NGX_CONF_ERROR;
+    }
+
+    v_idx = ngx_http_get_variable_index(cf, &value[1]);
+
+    if (v_idx == NGX_ERROR) {
+        return NGX_CONF_ERROR;
+    }
+
+    v_idx_ptr = ngx_palloc(cf->pool, sizeof(ngx_uint_t));
+
+    if (v_idx_ptr == NULL) {
+        return NGX_CONF_ERROR;
+    }
+
+    resvar->index = v_idx;
+    *v_idx_ptr = v_idx;
+
+    v->data = (uintptr_t) v_idx_ptr;
+    v->get_handler = ngx_http_get_dynamic_upstrand_value;
+
+    return NGX_CONF_OK;
+}
+
+
+static char *
 ngx_http_upstrand_add_upstream(ngx_conf_t *cf, ngx_array_t *upstreams,
     ngx_str_t *name)
 {
@@ -915,7 +1066,7 @@ ngx_http_combine_server_singlets(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         unsigned char  *buf = ngx_pnalloc(cf->pool, value[1].len + 1);
 
         ngx_snprintf(buf, value[1].len, "%V", &value[1]);
-        suf = (const char*)buf;
+        suf = (const char *) buf;
 
         if (cf->args->nelts > 2) {
             if (ngx_atoi(value[2].data, value[2].len) == NGX_ERROR) {
@@ -927,7 +1078,7 @@ ngx_http_combine_server_singlets(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
             buf = ngx_pnalloc(cf->pool, value[2].len + 6);
             ngx_snprintf(buf, sizeof(buf), "%s%V%s", "%s%0", &value[2], "d");
-            fmt = (const char*)buf;
+            fmt = (const char *) buf;
         }
     }
 

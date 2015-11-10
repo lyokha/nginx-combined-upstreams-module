@@ -4,6 +4,8 @@ Nginx Combined Upstreams module
 The module introduces two directives *add_upstream* and
 *combine_server_singlets* available inside upstream configuration blocks and a
 new configuration block *upstrand* for building super-layers of upstreams.
+Additionally a directive *dynamic_upstrand* is introduced for choosing upstrands
+in run-time.
 
 Directive add_upstream
 ----------------------
@@ -172,4 +174,55 @@ HTTP status *204* if they do not have new tasks. In a flat combined upstream all
 10 servers may be polled before the application will finally receive a new task
 from another upstream. The upstrand *us1* allows skipping to the next upstream
 after checking the first server in an upstream that does not have tasks.
+
+Directive dynamic_upstrand
+--------------------------
+
+Allows choosing an upstrand from passed variables in run-time. The directive can
+be set in server, location and location-if clauses.
+
+In following configuration
+
+```nginx
+    upstrand us1 {
+        upstream ~^u0;
+        upstream b01 backup;
+        order start_random;
+        next_upstream_statuses 5xx;
+    }
+    upstrand us2 {
+        upstream ~^u0;
+        upstream b02 backup;
+        order start_random;
+        next_upstream_statuses 5xx;
+    }
+
+    server {
+        listen       8010;
+        server_name  main;
+
+        dynamic_upstrand $dus1 $arg_a us2;
+
+        location / {
+            dynamic_upstrand $dus2 $arg_b;
+            if ($arg_b) {
+                proxy_pass http://$dus2;
+                break;
+            }
+            proxy_pass http://$dus1;
+        }
+    }
+```
+
+upstrands returned in variables *dus1* and *dus2* are to be chosen from values
+of variables *arg_a* and *arg_b*. If *arg_b* is set then the client request will
+be sent to an upstrand with name equal to the value of *arg_b*. If there is not
+an upstream with this name then *dus2* will be empty and *proxy_pass* will
+return HTTP status *500*. To prevent bad initialization of a dynamic upstrand
+variable, its declaration must be terminated with a literal name that
+corresponds to an existing upstrand. In this example dynamic upstrand variable
+*dus1* will be initialized by the upstrand *us2* if *arg_a* does not match to an
+existing upstrand or is not set. So if *arg_b* is not set and *arg_b* is and has
+a value equal to an existing upstrand, the request will be sent to this
+upstrand, otherwise (if *arg_b* is not set) it will be sent to upstrand *us2*.
 
