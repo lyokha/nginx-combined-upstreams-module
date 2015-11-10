@@ -196,7 +196,6 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
     ngx_http_upstrand_request_ctx_t  *ctx;
     ngx_int_t                         status;
     ngx_http_request_t               *sr;
-    ngx_str_t                         uri;
     ngx_int_t                        *next_upstream_statuses;
     ngx_uint_t                        is_next_upstream_status;
 
