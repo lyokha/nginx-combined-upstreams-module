@@ -199,7 +199,6 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
     ngx_int_t                        *next_upstream_statuses;
     ngx_uint_t                        is_next_upstream_status;
 
-
     ctx = ngx_http_get_module_ctx(r->main, ngx_http_combined_upstreams_module);
     if (ctx == NULL) {
         return ngx_http_next_header_filter(r);
