@@ -61,7 +61,6 @@ typedef struct {
     ngx_int_t                  cur;
     ngx_int_t                  b_cur;
     ngx_uint_t                 last:1;
-    ngx_uint_t                 last_buf:1;
     ngx_uint_t                 debug_intermediate_stages:1;
 } ngx_http_upstrand_request_ctx_t;
 
@@ -255,17 +254,13 @@ ngx_http_upstrand_response_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
     ngx_http_upstrand_request_ctx_t  *ctx;
 
     ctx = ngx_http_get_module_ctx(r->main, ngx_http_combined_upstreams_module);
-    if (ctx == NULL || !ctx->last) {
+    if (ctx == NULL) {
         return ngx_http_next_body_filter(r, in);
     }
 
-    if (ctx->last_buf) {
-        /* FIXME: alternatively we could return NGX_OK, however in this case
-         * r->buffered and r->postponed must be unset in order to let the
-         * current request flush: see ngx_http_writer(). But would it be enough
-         * in all cases? On the other hand, returning NGX_ERROR seems to be
-         * pretty harmless to the final response. */
-        return NGX_ERROR;
+    if (!ctx->last) {
+        return ngx_http_next_body_filter(r,
+                                ctx->debug_intermediate_stages ? in : NULL);
     }
 
     if (!ctx->debug_intermediate_stages && in != NULL) {
@@ -275,7 +270,6 @@ ngx_http_upstrand_response_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
         }
         if (last->buf->last_in_chain) {
             last->buf->last_buf = 1;
-            ctx->last_buf = 1;
         }
     }
 
