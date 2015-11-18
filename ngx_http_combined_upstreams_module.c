@@ -55,11 +55,13 @@ typedef struct {
 
 
 typedef struct {
+    ngx_http_request_t        *r;
     ngx_array_t               *next_upstream_statuses;
     ngx_int_t                  start_cur;
     ngx_int_t                  start_bcur;
     ngx_int_t                  cur;
     ngx_int_t                  b_cur;
+    ngx_uint_t                 backup_cycle:1;
     ngx_uint_t                 last:1;
     ngx_uint_t                 debug_intermediate_stages:1;
 } ngx_http_upstrand_request_ctx_t;
@@ -289,7 +291,6 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
     ngx_uint_t                         u_nelts, bu_nelts;
     ngx_http_upstream_main_conf_t     *usmf;
     ngx_http_upstream_srv_conf_t     **uscfp;
-    ngx_uint_t                         backup_cycle = 0;
 
     ctx = ngx_http_get_module_ctx(r->main, ngx_http_combined_upstreams_module);
 
@@ -303,6 +304,7 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
             return NGX_ERROR;
         }
 
+        ctx->r = r;
         ctx->next_upstream_statuses = &upstrand->next_upstream_statuses;
         if (upstrand->order_per_request &&
             upstrand->order == ngx_http_upstrand_order_start_random)
@@ -322,7 +324,7 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
                 upstrand->cur = (upstrand->cur + 1) % u_nelts;
             }
         } else {
-            backup_cycle = 1;
+            ctx->backup_cycle = 1;
             if (bu_nelts > 0 && !upstrand->order_per_request) {
                 upstrand->b_cur = (upstrand->b_cur + 1) % bu_nelts;
             }
@@ -330,23 +332,23 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
 
         ngx_http_set_ctx(r->main, ctx, ngx_http_combined_upstreams_module);
 
-    } else if (r != r->main) {
+    } else if (r != ctx->r) {
 
-        if (backup_cycle) {
+        if (ctx->backup_cycle) {
             if (bu_nelts > 0) {
                 ctx->b_cur = (ctx->b_cur + 1) % bu_nelts;
             }
         } else if (u_nelts > 0) {
             ctx->cur = (ctx->cur + 1) % u_nelts;
             if (ctx->cur == ctx->start_cur) {
-                backup_cycle = 1;
+                ctx->backup_cycle = 1;
             }
         }
     }
 
     if ((bu_nelts == 0 &&
          (ctx->cur + 1) % u_nelts == (ngx_uint_t) ctx->start_cur) ||
-        (backup_cycle &&
+        (ctx->backup_cycle &&
          (ctx->b_cur + 1) % bu_nelts == (ngx_uint_t) ctx->start_bcur))
     {
         ctx->last = 1;
@@ -358,7 +360,7 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
     u_elts = upstrand->upstreams.elts;
     bu_elts = upstrand->b_upstreams.elts;
 
-    if (backup_cycle) {
+    if (ctx->backup_cycle) {
         val = uscfp[bu_elts[ctx->b_cur]]->host;
     } else {
         val = uscfp[u_elts[ctx->cur]]->host;
