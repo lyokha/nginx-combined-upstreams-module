@@ -297,12 +297,12 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
     bu_nelts = upstrand->b_upstreams.nelts;
 
     if (ctx == NULL) {
-        ctx = ngx_pcalloc(r->pool, sizeof(ngx_http_upstrand_request_ctx_t));
+        ctx = ngx_pcalloc(r->main->pool,
+                          sizeof(ngx_http_upstrand_request_ctx_t));
         if (ctx == NULL) {
             return NGX_ERROR;
         }
 
-        ctx = ngx_pcalloc(r->pool, sizeof(ngx_http_upstrand_request_ctx_t));
         ctx->next_upstream_statuses = &upstrand->next_upstream_statuses;
         if (upstrand->order_per_request &&
             upstrand->order == ngx_http_upstrand_order_start_random)
@@ -328,7 +328,7 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
             }
         }
 
-        ngx_http_set_ctx(r, ctx, ngx_http_combined_upstreams_module);
+        ngx_http_set_ctx(r->main, ctx, ngx_http_combined_upstreams_module);
 
     } else if (r != r->main) {
 
