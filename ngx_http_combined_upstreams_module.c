@@ -68,6 +68,11 @@ typedef struct {
 
 
 typedef struct {
+    /* no data */
+} ngx_http_upstrand_subrequest_ctx_t;
+
+
+typedef struct {
     ngx_str_t                  key;
     ngx_int_t                  index;
 }  ngx_http_cu_varhandle_t;
@@ -297,6 +302,14 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
     u_nelts = upstrand->upstreams.nelts;
     bu_nelts = upstrand->b_upstreams.nelts;
 
+    if (ctx != NULL
+        && (r == ctx->r
+            || ngx_http_get_module_ctx(r, ngx_http_combined_upstreams_module)
+                != NULL))
+    {
+        goto was_accessed;
+    }
+
     if (ctx == NULL) {
         ctx = ngx_pcalloc(r->main->pool,
                           sizeof(ngx_http_upstrand_request_ctx_t));
@@ -333,6 +346,14 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
         ngx_http_set_ctx(r->main, ctx, ngx_http_combined_upstreams_module);
 
     } else if (r != ctx->r) {
+        ngx_http_upstrand_subrequest_ctx_t  *sr_ctx;
+
+        sr_ctx = ngx_pcalloc(r->pool,
+                             sizeof(ngx_http_upstrand_subrequest_ctx_t));
+        if (sr_ctx == NULL) {
+            return NGX_ERROR;
+        }
+        ngx_http_set_ctx(r, sr_ctx, ngx_http_combined_upstreams_module);
 
         if (ctx->backup_cycle) {
             if (bu_nelts > 0) {
@@ -353,6 +374,8 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
     {
         ctx->last = 1;
     }
+
+was_accessed:
 
     usmf = ngx_http_get_module_main_conf(r, ngx_http_upstream_module);
     uscfp = usmf->upstreams.elts;
