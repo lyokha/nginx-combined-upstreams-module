@@ -260,14 +260,13 @@ ngx_http_upstrand_response_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
 {
     ngx_http_upstrand_request_ctx_t  *ctx;
 
-    ctx = ngx_http_get_module_ctx(r->main, ngx_http_combined_upstreams_module);
-    if (ctx == NULL) {
+    if (in == NULL || r->header_only) {
         return ngx_http_next_body_filter(r, in);
     }
 
-    if (!ctx->last) {
-        return ngx_http_next_body_filter(r,
-                                ctx->debug_intermediate_stages ? in : NULL);
+    ctx = ngx_http_get_module_ctx(r->main, ngx_http_combined_upstreams_module);
+    if (ctx == NULL || !ctx->last) {
+        return ngx_http_next_body_filter(r, in);
     }
 
     if (!ctx->debug_intermediate_stages && in != NULL) {
