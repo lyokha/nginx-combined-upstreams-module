@@ -61,14 +61,14 @@ typedef struct {
     ngx_int_t                  start_bcur;
     ngx_int_t                  cur;
     ngx_int_t                  b_cur;
+    ngx_uint_t                 last;
     ngx_uint_t                 backup_cycle:1;
-    ngx_uint_t                 last:1;
     ngx_uint_t                 debug_intermediate_stages:1;
 } ngx_http_upstrand_request_ctx_t;
 
 
 typedef struct {
-    /* no data */
+    ngx_uint_t                 last;
 } ngx_http_upstrand_subrequest_ctx_t;
 
 
@@ -198,17 +198,27 @@ ngx_http_upstrand_init(ngx_conf_t *cf)
 static ngx_int_t
 ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
 {
-    ngx_uint_t                        i;
-    ngx_http_upstrand_request_ctx_t  *ctx;
-    ngx_int_t                         status;
-    ngx_http_request_t               *sr;
-    ngx_int_t                        *next_upstream_statuses;
-    ngx_uint_t                        is_next_upstream_status;
+    ngx_uint_t                           i;
+    ngx_http_upstrand_request_ctx_t     *ctx;
+    ngx_http_upstrand_subrequest_ctx_t  *sr_ctx;
+    ngx_uint_t                          *last;
+    ngx_int_t                            status;
+    ngx_http_request_t                  *sr;
+    ngx_int_t                           *next_upstream_statuses;
+    ngx_uint_t                           is_next_upstream_status;
 
     ctx = ngx_http_get_module_ctx(r->main, ngx_http_combined_upstreams_module);
     if (ctx == NULL) {
         return ngx_http_next_header_filter(r);
     }
+
+    if (r != ctx->r) {
+        sr_ctx = ngx_http_get_module_ctx(r, ngx_http_combined_upstreams_module);
+        if (sr_ctx == NULL) {
+            return NGX_ERROR;
+        }
+    }
+    last = r == ctx->r ? &ctx->last : &sr_ctx->last;
 
     status = r->headers_out.status;
 
@@ -228,7 +238,7 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
         }
     }
 
-    if (is_next_upstream_status && !ctx->last) {
+    if (is_next_upstream_status && !*last) {
         if (ngx_http_subrequest(r, &r->main->uri, &r->main->args, &sr, NULL, 0)
             != NGX_OK)
         {
@@ -241,10 +251,10 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
 
         return NGX_OK;
     } else {
-        ctx->last = 1;
+        *last = 1;
     }
 
-    if (r != r->main && ctx->last) {
+    if (r != r->main && *last) {
         /* copy HTTP headers to main request */
         r->main->headers_out = r->headers_out;
 
@@ -258,16 +268,27 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
 static ngx_int_t
 ngx_http_upstrand_response_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
 {
-    ngx_http_upstrand_request_ctx_t  *ctx;
+    ngx_http_upstrand_request_ctx_t     *ctx;
+    ngx_http_upstrand_subrequest_ctx_t  *sr_ctx;
+    ngx_uint_t                           last;
 
     ctx = ngx_http_get_module_ctx(r->main, ngx_http_combined_upstreams_module);
     if (ctx == NULL) {
         return ngx_http_next_body_filter(r, in);
     }
 
-    if (!ctx->last) {
+    if (r != ctx->r) {
+        sr_ctx = ngx_http_get_module_ctx(r, ngx_http_combined_upstreams_module);
+        if (sr_ctx == NULL) {
+            return NGX_ERROR;
+        }
+    }
+
+    last = r == ctx->r ? ctx->last : sr_ctx->last;
+
+    if (!last) {
         /* if upstream buffering is off then its out_bufs must be updated
-         * right here! (nginx 1.8.0) */
+         * right here! (at least in nginx 1.8.0) */
         if (!ctx->debug_intermediate_stages
             && r->upstream && !r->upstream->buffering)
         {
@@ -278,13 +299,13 @@ ngx_http_upstrand_response_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
     }
 
     if (!ctx->debug_intermediate_stages && in != NULL) {
-        ngx_chain_t  *last = in;
+        ngx_chain_t  *cl = in;
 
-        while (last->next) {
-            last = last->next;
+        while (cl->next) {
+            cl = cl->next;
         }
-        if (last->buf->last_in_chain) {
-            last->buf->last_buf = 1;
+        if (cl->buf->last_in_chain) {
+            cl->buf->last_buf = 1;
         }
     }
 
@@ -298,12 +319,14 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
 {
     ngx_http_upstrand_conf_t  *upstrand = (ngx_http_upstrand_conf_t *) data;
 
-    ngx_str_t                          val;
-    ngx_http_upstrand_request_ctx_t   *ctx;
-    ngx_int_t                         *u_elts, *bu_elts;
-    ngx_uint_t                         u_nelts, bu_nelts;
-    ngx_http_upstream_main_conf_t     *usmf;
-    ngx_http_upstream_srv_conf_t     **uscfp;
+    ngx_str_t                             val;
+    ngx_http_upstrand_request_ctx_t      *ctx;
+    ngx_http_upstrand_subrequest_ctx_t   *sr_ctx;
+    ngx_uint_t                           *last;
+    ngx_int_t                            *u_elts, *bu_elts;
+    ngx_uint_t                            u_nelts, bu_nelts;
+    ngx_http_upstream_main_conf_t        *usmf;
+    ngx_http_upstream_srv_conf_t        **uscfp;
 
     ctx = ngx_http_get_module_ctx(r->main, ngx_http_combined_upstreams_module);
 
@@ -354,7 +377,6 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
         ngx_http_set_ctx(r->main, ctx, ngx_http_combined_upstreams_module);
 
     } else if (r != ctx->r) {
-        ngx_http_upstrand_subrequest_ctx_t  *sr_ctx;
 
         sr_ctx = ngx_pcalloc(r->pool,
                              sizeof(ngx_http_upstrand_subrequest_ctx_t));
@@ -375,12 +397,20 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
         }
     }
 
+    if (r != ctx->r) {
+        sr_ctx = ngx_http_get_module_ctx(r, ngx_http_combined_upstreams_module);
+        if (sr_ctx == NULL) {
+            return NGX_ERROR;
+        }
+    }
+    last = r == ctx->r ? &ctx->last : &sr_ctx->last;
+
     if ((bu_nelts == 0 &&
          (ctx->cur + 1) % u_nelts == (ngx_uint_t) ctx->start_cur) ||
         (ctx->backup_cycle &&
          (ctx->b_cur + 1) % bu_nelts == (ngx_uint_t) ctx->start_bcur))
     {
-        ctx->last = 1;
+        *last = 1;
     }
 
 was_accessed:
