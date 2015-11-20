@@ -260,17 +260,26 @@ ngx_http_upstrand_response_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
 {
     ngx_http_upstrand_request_ctx_t  *ctx;
 
-    if (in == NULL || r->header_only) {
+    ctx = ngx_http_get_module_ctx(r->main, ngx_http_combined_upstreams_module);
+    if (ctx == NULL) {
         return ngx_http_next_body_filter(r, in);
     }
 
-    ctx = ngx_http_get_module_ctx(r->main, ngx_http_combined_upstreams_module);
-    if (ctx == NULL || !ctx->last) {
-        return ngx_http_next_body_filter(r, in);
+    if (!ctx->last) {
+        /* if upstream buffering is off then its out_bufs must be updated
+         * right here! (nginx 1.8.0) */
+        if (!ctx->debug_intermediate_stages
+            && r->upstream && !r->upstream->buffering)
+        {
+            r->upstream->out_bufs = NULL;
+        }
+        return ngx_http_next_body_filter(r,
+                                ctx->debug_intermediate_stages ? in : NULL);
     }
 
     if (!ctx->debug_intermediate_stages && in != NULL) {
-        ngx_chain_t *last = in;
+        ngx_chain_t  *last = in;
+
         while (last->next) {
             last = last->next;
         }
