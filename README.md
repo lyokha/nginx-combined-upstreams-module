@@ -126,7 +126,7 @@ will be regarded as candidates.
 
 ```nginx
 upstrand us1 {
-    upstream ~^u0;
+    upstream ~^u0 blacklist_interval=60s;
     upstream b01 backup;
     order start_random;
     next_upstream_statuses 204 5xx;
@@ -136,15 +136,19 @@ upstrand us1 {
 Upstrand *us1* will combine all upstreams whose names start with *u0* and
 upstream *b01* as backup. Backup upstreams are checked if all normal upstreams
 fail. The *failure* means that all upstreams in normal or backup cycles have
-responded with statuses listed in directive *next_upstream_statuses*. The
-directive accepts *4xx* and *5xx* statuses notation. Directive *order* currently
-accepts only one value *start_random* which means that starting upstreams in
-normal and backup cycles after worker fired up will be chosen randomly. Starting
-upstreams in further requests will be cycled in round-robin manner.
-Additionally, a modifier *per_request* is also accepted in the *order*
-directive: it turns off the global per-worker round-robin cycle. The combination
-of *per_request* and *start_random* makes the starting upstream in every new
-request be chosen randomly.
+responded with statuses listed in directive *next_upstream_statuses* or were
+*blacklisted*. An upstream is set as blacklisted when it has parameter
+*blacklist_interval* and responded with a status listed in the
+*next_upstream_statuses*. Blacklisting state is not shared between nginx worker
+processes. The *next_upstream_statuses* directive accepts *4xx* and *5xx*
+statuses notation. Directive *order* currently accepts only one value
+*start_random* which means that starting upstreams in normal and backup cycles
+after worker fired up will be chosen randomly. Starting upstreams in further
+requests will be cycled in round-robin manner. Additionally, a modifier
+*per_request* is also accepted in the *order* directive: it turns off the global
+per-worker round-robin cycle. The combination of *per_request* and
+*start_random* makes the starting upstream in every new request be chosen
+randomly.
 
 Such a failover between *failure* statuses can be reached during a single
 request by feeding a special variable that starts with *upstrand_* to the
