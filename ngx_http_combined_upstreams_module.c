@@ -36,6 +36,7 @@ typedef enum {
 
 
 typedef struct {
+    ngx_str_t                  name;
     ngx_array_t                upstreams;
     ngx_array_t                b_upstreams;
     ngx_array_t                next_upstream_statuses;
@@ -48,6 +49,13 @@ typedef struct {
 
 
 typedef struct {
+    time_t                     blacklist_interval;
+    time_t                     blacklist_last_occurrence;
+    ngx_uint_t                 index;
+} ngx_http_upstrand_upstream_conf_t;
+
+
+typedef struct {
     ngx_http_upstrand_conf_t  *upstrand;
     ngx_conf_t                *cf;
     ngx_uint_t                 order_done:1;
@@ -56,7 +64,7 @@ typedef struct {
 
 typedef struct {
     ngx_http_request_t        *r;
-    ngx_array_t               *next_upstream_statuses;
+    ngx_http_upstrand_conf_t  *upstrand;
     ngx_int_t                  start_cur;
     ngx_int_t                  start_bcur;
     ngx_int_t                  cur;
@@ -100,10 +108,10 @@ static char *ngx_http_upstrand(ngx_conf_t *cf, ngx_command_t *dummy,
 static char *ngx_http_dynamic_upstrand(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
 static char *ngx_http_upstrand_add_upstream(ngx_conf_t *cf,
-    ngx_array_t *upstreams, ngx_str_t *name);
+    ngx_array_t *upstreams, ngx_str_t *name, time_t blacklist_interval);
 #if (NGX_PCRE)
 static char *ngx_http_upstrand_regex_add_upstream(ngx_conf_t *cf,
-    ngx_array_t *upstreams, ngx_str_t *name);
+    ngx_array_t *upstreams, ngx_str_t *name, time_t blacklist_interval);
 #endif
 static ngx_int_t ngx_http_upstrand_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
@@ -206,6 +214,8 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
     ngx_http_request_t                  *sr;
     ngx_int_t                           *next_upstream_statuses;
     ngx_uint_t                           is_next_upstream_status;
+    ngx_http_upstrand_upstream_conf_t   *u_elts, *bu_elts;
+    ngx_uint_t                           u_nelts, bu_nelts;
 
     ctx = ngx_http_get_module_ctx(r->main, ngx_http_combined_upstreams_module);
     if (ctx == NULL) {
@@ -222,10 +232,10 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
 
     status = r->headers_out.status;
 
-    next_upstream_statuses = ctx->next_upstream_statuses->elts;
+    next_upstream_statuses = ctx->upstrand->next_upstream_statuses.elts;
     is_next_upstream_status = 0;
 
-    for (i = 0; i < ctx->next_upstream_statuses->nelts; i++) {
+    for (i = 0; i < ctx->upstrand->next_upstream_statuses.nelts; i++) {
 
         if ((next_upstream_statuses[i] == -4 && status >= 400 && status < 500)
             ||
@@ -238,18 +248,35 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
         }
     }
 
-    if (is_next_upstream_status && !*last) {
-        if (ngx_http_subrequest(r, &r->main->uri, &r->main->args, &sr, NULL, 0)
-            != NGX_OK)
-        {
-            return NGX_ERROR;
+    if (is_next_upstream_status) {
+        time_t  now = ngx_time();
+
+        u_elts = ctx->upstrand->upstreams.elts;
+        bu_elts = ctx->upstrand->b_upstreams.elts;
+
+        if (ctx->backup_cycle) {
+            if (bu_elts[ctx->b_cur].blacklist_interval > 0) {
+                bu_elts[ctx->b_cur].blacklist_last_occurrence = now;
+            }
+        } else {
+            if (u_elts[ctx->cur].blacklist_interval > 0) {
+                u_elts[ctx->cur].blacklist_last_occurrence = now;
+            }
         }
 
-        /* subrequest must use method of the original request */
-        sr->method = r->method;
-        sr->method_name = r->method_name;
+        if (!*last) {
+            if (ngx_http_subrequest(r, &r->main->uri, &r->main->args, &sr,
+                                    NULL, 0) != NGX_OK)
+            {
+                return NGX_ERROR;
+            }
 
-        return NGX_OK;
+            /* subrequest must use method of the original request */
+            sr->method = r->method;
+            sr->method_name = r->method_name;
+
+            return NGX_OK;
+        }
     } else {
         *last = 1;
     }
@@ -319,17 +346,23 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
 {
     ngx_http_upstrand_conf_t  *upstrand = (ngx_http_upstrand_conf_t *) data;
 
+    ngx_uint_t                            i;
     ngx_str_t                             val;
     ngx_http_upstrand_request_ctx_t      *ctx;
     ngx_http_upstrand_subrequest_ctx_t   *sr_ctx;
     ngx_uint_t                           *last;
-    ngx_int_t                            *u_elts, *bu_elts;
+    ngx_http_upstrand_upstream_conf_t    *u_elts, *bu_elts;
     ngx_uint_t                            u_nelts, bu_nelts;
     ngx_http_upstream_main_conf_t        *usmf;
     ngx_http_upstream_srv_conf_t        **uscfp;
+    time_t                                now;
+    ngx_int_t                             start_cur, start_bcur;
+    ngx_uint_t                            all_blacklisted, force_last;
 
     ctx = ngx_http_get_module_ctx(r->main, ngx_http_combined_upstreams_module);
 
+    u_elts = upstrand->upstreams.elts;
+    bu_elts = upstrand->b_upstreams.elts;
     u_nelts = upstrand->upstreams.nelts;
     bu_nelts = upstrand->b_upstreams.nelts;
 
@@ -349,7 +382,7 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
         }
 
         ctx->r = r;
-        ctx->next_upstream_statuses = &upstrand->next_upstream_statuses;
+        ctx->upstrand = upstrand;
         if (upstrand->order_per_request &&
             upstrand->order == ngx_http_upstrand_order_start_random)
         {
@@ -397,6 +430,64 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
         }
     }
 
+    now = ngx_time();
+    start_cur = ctx->cur;
+    start_bcur = ctx->b_cur;
+    all_blacklisted = 0;
+    force_last = 0;
+
+    while (1) {
+        if (ctx->backup_cycle) {
+            if (bu_nelts > 0) {
+                if (difftime(now, bu_elts[ctx->b_cur].blacklist_last_occurrence)
+                    < bu_elts[ctx->b_cur].blacklist_interval)
+                {
+                    ctx->b_cur = (ctx->b_cur + 1) % bu_nelts;
+                    if (ctx->b_cur == ctx->start_bcur) {
+                        force_last = 1;
+                    }
+                    if (ctx->b_cur == start_bcur) {
+                        all_blacklisted = 1;
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            } else {
+                all_blacklisted = 1;
+                break;
+            }
+        } else if (u_nelts > 0) {
+            if (difftime(now, u_elts[ctx->cur].blacklist_last_occurrence)
+                < u_elts[ctx->cur].blacklist_interval)
+            {
+                ctx->cur = (ctx->cur + 1) % u_nelts;
+                if (bu_nelts == 0 && ctx->cur == ctx->start_cur) {
+                    force_last = 1;
+                }
+                if (ctx->cur == start_cur) {
+                    ctx->backup_cycle = 1;
+                }
+            } else {
+                break;
+            }
+        }
+    }
+
+    if (all_blacklisted) {
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                      "all upstreams in upstrand \"%V\" blacklisted, "
+                      "whitelisting them", &upstrand->name);
+        ctx->cur = start_cur;
+        ctx->b_cur = start_bcur;
+        for (i = 0; i < u_nelts; i++) {
+            u_elts[i].blacklist_last_occurrence = 0;
+        }
+        for (i = 0; i < bu_nelts; i++) {
+            bu_elts[i].blacklist_last_occurrence = 0;
+        }
+    }
+
     if (r != ctx->r) {
         sr_ctx = ngx_http_get_module_ctx(r, ngx_http_combined_upstreams_module);
         if (sr_ctx == NULL) {
@@ -405,7 +496,8 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
     }
     last = r == ctx->r ? &ctx->last : &sr_ctx->last;
 
-    if ((bu_nelts == 0 &&
+    if (force_last ||
+        (bu_nelts == 0 &&
          (ctx->cur + 1) % u_nelts == (ngx_uint_t) ctx->start_cur) ||
         (ctx->backup_cycle &&
          (ctx->b_cur + 1) % bu_nelts == (ngx_uint_t) ctx->start_bcur))
@@ -418,13 +510,10 @@ was_accessed:
     usmf = ngx_http_get_module_main_conf(r, ngx_http_upstream_module);
     uscfp = usmf->upstreams.elts;
 
-    u_elts = upstrand->upstreams.elts;
-    bu_elts = upstrand->b_upstreams.elts;
-
     if (ctx->backup_cycle) {
-        val = uscfp[bu_elts[ctx->b_cur]]->host;
+        val = uscfp[bu_elts[ctx->b_cur].index]->host;
     } else {
-        val = uscfp[u_elts[ctx->cur]]->host;
+        val = uscfp[u_elts[ctx->cur].index]->host;
     }
 
     v->valid = 1;
@@ -484,7 +573,7 @@ ngx_http_get_dynamic_upstrand_value(ngx_http_request_t *r,
             var_name = upstrand_cands_elts[i].key;
         } else {
             found = ngx_http_get_indexed_variable(r,
-                                                  upstrand_cands_elts[i].index);
+                                                upstrand_cands_elts[i].index);
             if (found == NULL || found->len == 0) {
                 continue;
             }
@@ -610,15 +699,12 @@ ngx_http_upstrand_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     }
     ngx_memzero(upstrand, sizeof(ngx_http_upstrand_conf_t));
 
-    if (ngx_array_init(&upstrand->upstreams, cf->pool, 1, sizeof(ngx_int_t))
-        != NGX_OK
-        ||
-        ngx_array_init(&upstrand->b_upstreams, cf->pool, 1, sizeof(ngx_int_t))
-        != NGX_OK
-        ||
+    if (ngx_array_init(&upstrand->upstreams, cf->pool, 1,
+                       sizeof(ngx_http_upstrand_upstream_conf_t)) != NGX_OK ||
+        ngx_array_init(&upstrand->b_upstreams, cf->pool, 1,
+                       sizeof(ngx_http_upstrand_upstream_conf_t)) != NGX_OK ||
         ngx_array_init(&upstrand->next_upstream_statuses, cf->pool, 1,
-                       sizeof(ngx_int_t))
-        != NGX_OK)
+                       sizeof(ngx_int_t)) != NGX_OK)
     {
         return NGX_CONF_ERROR;
     }
@@ -627,6 +713,7 @@ ngx_http_upstrand_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
     value = cf->args->elts;
     name = value[1];
+    upstrand->name = name;
 
     var_name.len = name.len + 9;
     var_name.data = ngx_pnalloc(cf->pool, var_name.len);
@@ -691,10 +778,8 @@ static char *
 ngx_http_upstrand(ngx_conf_t *cf, ngx_command_t *dummy, void *conf)
 {
     ngx_uint_t                     i;
-    ngx_int_t                     *idx;
     ngx_str_t                     *value;
     ngx_http_upstrand_conf_ctx_t  *ctx;
-    ngx_uint_t                     check_order = 0;
 
     value = cf->args->elts;
     ctx = cf->ctx;
@@ -708,30 +793,10 @@ ngx_http_upstrand(ngx_conf_t *cf, ngx_command_t *dummy, void *conf)
         }
     }
 
-    if (cf->args->nelts == 2) {
-        if (value[0].len == 8 && ngx_strncmp(value[0].data, "upstream", 8) == 0)
-        {
-            return ngx_http_upstrand_add_upstream(ctx->cf,
-                        &ctx->upstrand->upstreams, &value[1]);
-        }
-        check_order = 1;
-    }
-
-    if (cf->args->nelts == 3) {
-        if (value[0].len == 8 && value[2].len == 6 &&
-            ngx_strncmp(value[0].data, "upstream", 8) == 0 &&
-            ngx_strncmp(value[2].data, "backup", 6) == 0)
-        {
-            return ngx_http_upstrand_add_upstream(ctx->cf,
-                        &ctx->upstrand->b_upstreams, &value[1]);
-        }
-        check_order = 1;
-    }
-
-    if (check_order) {
+    if (cf->args->nelts == 2 || cf->args->nelts == 3) {
 
         if (value[0].len == 5 && ngx_strncmp(value[0].data, "order", 5) == 0) {
-            ngx_uint_t per_request_done = 0;
+            ngx_uint_t  done[2] = {0, 0};
 
             if (ctx->order_done) {
                 ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
@@ -744,23 +809,27 @@ ngx_http_upstrand(ngx_conf_t *cf, ngx_command_t *dummy, void *conf)
                 if (value[i].len == 12 &&
                     ngx_strncmp(value[i].data, "start_random", 12) == 0)
                 {
+                    if (done[0]++ > 0) {
+                        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                                    "bad upstrand directive \"order\" content");
+                        return NGX_CONF_ERROR;
+                    }
                     ctx->upstrand->order = ngx_http_upstrand_order_start_random;
                 }
 
                 if (value[i].len == 11 &&
                     ngx_strncmp(value[i].data, "per_request", 11) == 0)
                 {
-                    if (per_request_done) {
+                    if (done[1]++ > 0) {
                         ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
                                     "bad upstrand directive \"order\" content");
                         return NGX_CONF_ERROR;
                     }
                     ctx->upstrand->order_per_request = 1;
-                    per_request_done = 1;
                 }
             }
 
-            if (cf->args->nelts == 3 && !per_request_done) {
+            if (done[0] + done[1] != cf->args->nelts - 1) {
                 ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
                                    "bad upstrand directive \"order\" content");
                 return NGX_CONF_ERROR;
@@ -771,29 +840,87 @@ ngx_http_upstrand(ngx_conf_t *cf, ngx_command_t *dummy, void *conf)
         }
     }
 
-    if (value[0].len == 22 &&
-        ngx_strncmp(value[0].data, "next_upstream_statuses", 22) == 0)
-    {
-        for (i = 1; i < cf->args->nelts; i++) {
-            ngx_uint_t  invalid_status = 0;
+    if (cf->args->nelts > 1 && cf->args->nelts < 5) {
+        if (value[0].len == 8 && ngx_strncmp(value[0].data, "upstream", 8) == 0)
+        {
+            ngx_uint_t  done[2] = {0, 0};
+            time_t      blacklist_interval = 0;
 
-            idx = ngx_array_push(&ctx->upstrand->next_upstream_statuses);
-            if (idx == NULL) {
+            for (i = 2; i < cf->args->nelts; i++) {
+
+                if (value[i].len == 6 &&
+                    ngx_strncmp(value[i].data, "backup", 6) == 0)
+                {
+                    if (done[0]++ > 0) {
+                        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                                "bad upstrand directive \"upstream\" content");
+                        return NGX_CONF_ERROR;
+                    }
+                }
+
+                if (value[i].len > 19 &&
+                    ngx_strncmp(value[i].data, "blacklist_interval=", 19) == 0)
+                {
+                    ngx_str_t  interval = value[i];
+
+                    if (done[1]++ > 0) {
+                        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                                "bad upstrand directive \"upstream\" content");
+                        return NGX_CONF_ERROR;
+                    }
+
+                    interval.data += 19;
+                    interval.len -= 19;
+
+                    blacklist_interval = ngx_parse_time(&interval, 1);
+
+                    if (blacklist_interval == NGX_ERROR) {
+                        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                                "bad blacklist interval: \"%V\"", &interval);
+                        return NGX_CONF_ERROR;
+                    }
+
+                }
+            }
+
+            if (done[0] + done[1] != cf->args->nelts - 2) {
+                ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                                "bad upstrand directive \"upstream\" content");
                 return NGX_CONF_ERROR;
             }
 
-            *idx = ngx_atoi(value[i].data, value[i].len);
+            return ngx_http_upstrand_add_upstream(ctx->cf,
+                        done[0] == 0 ? &ctx->upstrand->upstreams :
+                                       &ctx->upstrand->b_upstreams, &value[1],
+                        blacklist_interval);
+        }
+    }
 
-            if (*idx == NGX_ERROR) {
+    if (value[0].len == 22 &&
+        ngx_strncmp(value[0].data, "next_upstream_statuses", 22) == 0)
+    {
+        ngx_int_t  *status;
+
+        for (i = 1; i < cf->args->nelts; i++) {
+            ngx_uint_t  invalid_status = 0;
+
+            status = ngx_array_push(&ctx->upstrand->next_upstream_statuses);
+            if (status == NULL) {
+                return NGX_CONF_ERROR;
+            }
+
+            *status = ngx_atoi(value[i].data, value[i].len);
+
+            if (*status == NGX_ERROR) {
 
                 if (value[i].len == 3 &&
                     ngx_strncmp(value[i].data + 1, "xx", 2) == 0) {
                     switch (value[i].data[0]) {
                     case '4':
-                        *idx = -4;
+                        *status = -4;
                         break;
                     case '5':
-                        *idx = -5;
+                        *status = -5;
                         break;
                     default:
                         invalid_status = 1;
@@ -913,19 +1040,21 @@ ngx_http_dynamic_upstrand(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
 static char *
 ngx_http_upstrand_add_upstream(ngx_conf_t *cf, ngx_array_t *upstreams,
-    ngx_str_t *name)
+    ngx_str_t *name, time_t blacklist_interval)
 {
-    ngx_uint_t                       i;
-    ngx_int_t                       *idx, found_idx;
-    ngx_http_upstream_main_conf_t   *usmf;
-    ngx_http_upstream_srv_conf_t   **uscfp;
+    ngx_uint_t                           i;
+    ngx_uint_t                           found_idx;
+    ngx_http_upstrand_upstream_conf_t   *u;
+    ngx_http_upstream_main_conf_t       *usmf;
+    ngx_http_upstream_srv_conf_t       **uscfp;
 
 #if (NGX_PCRE)
     if (name->len > 1 && name->data[0] == '~') {
         name->len -= 1;
         name->data += 1;
 
-        return ngx_http_upstrand_regex_add_upstream(cf, upstreams, name);
+        return ngx_http_upstrand_regex_add_upstream(cf, upstreams, name,
+                                                    blacklist_interval);
     }
 #endif
 
@@ -942,25 +1071,27 @@ ngx_http_upstrand_add_upstream(ngx_conf_t *cf, ngx_array_t *upstreams,
         }
     }
 
-    if (found_idx == NGX_ERROR) {
+    if (found_idx == (ngx_uint_t) NGX_ERROR) {
         ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "upstream \"%V\" is not found",
                            name);
         return NGX_CONF_ERROR;
     }
 
     for (i = 0; i < upstreams->nelts; i++) {
-        ngx_int_t  *registered = upstreams->elts;
-        if (found_idx == registered[i]) {
+        ngx_http_upstrand_upstream_conf_t  *registered = upstreams->elts;
+        if (found_idx == registered[i].index) {
             return NGX_CONF_OK;
         }
     }
 
-    idx = ngx_array_push(upstreams);
-    if (idx == NULL) {
+    u = ngx_array_push(upstreams);
+    if (u == NULL) {
         return NGX_CONF_ERROR;
     }
 
-    *idx = found_idx;
+    u->index = found_idx;
+    u->blacklist_last_occurrence = 0;
+    u->blacklist_interval = blacklist_interval;
 
     return NGX_CONF_OK;
 }
@@ -970,15 +1101,15 @@ ngx_http_upstrand_add_upstream(ngx_conf_t *cf, ngx_array_t *upstreams,
 
 static char *
 ngx_http_upstrand_regex_add_upstream(ngx_conf_t *cf, ngx_array_t *upstreams,
-    ngx_str_t *name)
+    ngx_str_t *name, time_t blacklist_interval)
 {
-    ngx_uint_t                       i, j;
-    ngx_int_t                       *idx;
-    ngx_http_upstream_main_conf_t   *usmf;
-    ngx_http_upstream_srv_conf_t   **uscfp;
-    ngx_regex_compile_t              rc;
-    u_char                           errstr[NGX_MAX_CONF_ERRSTR];
-    ngx_http_regex_t                *re;
+    ngx_uint_t                           i, j;
+    ngx_http_upstrand_upstream_conf_t   *u;
+    ngx_http_upstream_main_conf_t       *usmf;
+    ngx_http_upstream_srv_conf_t       **uscfp;
+    ngx_regex_compile_t                  rc;
+    u_char                               errstr[NGX_MAX_CONF_ERRSTR];
+    ngx_http_regex_t                    *re;
 
     ngx_memzero(&rc, sizeof(ngx_regex_compile_t));
     rc.pattern = *name;
@@ -1001,9 +1132,10 @@ ngx_http_upstrand_regex_add_upstream(ngx_conf_t *cf, ngx_array_t *upstreams,
             != NGX_REGEX_NO_MATCHED)
         {
             for (j = 0; j < upstreams->nelts; j++) {
-                ngx_int_t  *registered = upstreams->elts;
+                ngx_http_upstrand_upstream_conf_t  *registered =
+                        upstreams->elts;
 
-                if ((ngx_int_t) i == registered[j]) {
+                if (i == registered[j].index) {
                     is_registered = 1;
                     break;
                 }
@@ -1013,12 +1145,14 @@ ngx_http_upstrand_regex_add_upstream(ngx_conf_t *cf, ngx_array_t *upstreams,
                 continue;
             }
 
-            idx = ngx_array_push(upstreams);
-            if (idx == NULL) {
+            u = ngx_array_push(upstreams);
+            if (u == NULL) {
                 return NGX_CONF_ERROR;
             }
 
-            *idx = i;
+            u->index = i;
+            u->blacklist_last_occurrence = 0;
+            u->blacklist_interval = blacklist_interval;
         }
     }
 
