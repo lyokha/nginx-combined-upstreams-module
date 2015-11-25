@@ -72,6 +72,7 @@ typedef struct {
     ngx_uint_t                 last;
     ngx_uint_t                 backup_cycle:1;
     ngx_uint_t                 debug_intermediate_stages:1;
+    ngx_uint_t                 all_blacklisted:1;
 } ngx_http_upstrand_request_ctx_t;
 
 
@@ -214,8 +215,6 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
     ngx_http_request_t                  *sr;
     ngx_int_t                           *next_upstream_statuses;
     ngx_uint_t                           is_next_upstream_status;
-    ngx_http_upstrand_upstream_conf_t   *u_elts, *bu_elts;
-    ngx_uint_t                           u_nelts, bu_nelts;
 
     ctx = ngx_http_get_module_ctx(r->main, ngx_http_combined_upstreams_module);
     if (ctx == NULL) {
@@ -249,18 +248,24 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
     }
 
     if (is_next_upstream_status) {
-        time_t  now = ngx_time();
+        ngx_http_upstrand_upstream_conf_t  *u_elts, *bu_elts;
+        ngx_uint_t                          bu_nelts;
+        time_t                              now = ngx_time();
 
         u_elts = ctx->upstrand->upstreams.elts;
         bu_elts = ctx->upstrand->b_upstreams.elts;
+        bu_nelts = ctx->upstrand->b_upstreams.nelts;
 
-        if (ctx->backup_cycle) {
-            if (bu_elts[ctx->b_cur].blacklist_interval > 0) {
-                bu_elts[ctx->b_cur].blacklist_last_occurrence = now;
-            }
-        } else {
-            if (u_elts[ctx->cur].blacklist_interval > 0) {
-                u_elts[ctx->cur].blacklist_last_occurrence = now;
+        /* do not blacklist last upstream immediately after whitelisting */
+        if (!ctx->all_blacklisted) {
+            if (ctx->backup_cycle && bu_nelts > 0) {
+                if (bu_elts[ctx->b_cur].blacklist_interval > 0) {
+                    bu_elts[ctx->b_cur].blacklist_last_occurrence = now;
+                }
+            } else {
+                if (u_elts[ctx->cur].blacklist_interval > 0) {
+                    u_elts[ctx->cur].blacklist_last_occurrence = now;
+                }
             }
         }
 
@@ -357,7 +362,8 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
     ngx_http_upstream_srv_conf_t        **uscfp;
     time_t                                now;
     ngx_int_t                             start_cur, start_bcur;
-    ngx_uint_t                            all_blacklisted, force_last;
+    ngx_int_t                             cur_cur, cur_bcur;
+    ngx_uint_t                            force_last = 0;
 
     ctx = ngx_http_get_module_ctx(r->main, ngx_http_combined_upstreams_module);
 
@@ -431,10 +437,8 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
     }
 
     now = ngx_time();
-    start_cur = ctx->cur;
-    start_bcur = ctx->b_cur;
-    all_blacklisted = 0;
-    force_last = 0;
+    start_cur = cur_cur = ctx->cur;
+    start_bcur = cur_bcur = ctx->b_cur;
 
     while (1) {
         if (ctx->backup_cycle) {
@@ -442,30 +446,38 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
                 if (difftime(now, bu_elts[ctx->b_cur].blacklist_last_occurrence)
                     < bu_elts[ctx->b_cur].blacklist_interval)
                 {
-                    ctx->b_cur = (ctx->b_cur + 1) % bu_nelts;
-                    if (ctx->b_cur == ctx->start_bcur) {
+                    ngx_int_t  old_bcur = cur_bcur;
+
+                    cur_bcur = (cur_bcur + 1) % bu_nelts;
+                    if (cur_bcur == ctx->start_bcur) {
                         force_last = 1;
+                    } else if (!force_last) {
+                        ctx->b_cur = old_bcur;
                     }
-                    if (ctx->b_cur == start_bcur) {
-                        all_blacklisted = 1;
+                    if (cur_bcur == start_bcur) {
+                        ctx->all_blacklisted = 1;
                         break;
                     }
                 } else {
                     break;
                 }
             } else {
-                all_blacklisted = 1;
+                ctx->all_blacklisted = 1;
                 break;
             }
         } else if (u_nelts > 0) {
             if (difftime(now, u_elts[ctx->cur].blacklist_last_occurrence)
                 < u_elts[ctx->cur].blacklist_interval)
             {
-                ctx->cur = (ctx->cur + 1) % u_nelts;
-                if (bu_nelts == 0 && ctx->cur == ctx->start_cur) {
+                ngx_int_t  old_cur = cur_cur;
+
+                cur_cur = (cur_cur + 1) % u_nelts;
+                if (bu_nelts == 0 && cur_cur == ctx->start_cur) {
                     force_last = 1;
+                } else if (!force_last) {
+                    ctx->cur = old_cur;
                 }
-                if (ctx->cur == start_cur) {
+                if (cur_cur == start_cur) {
                     ctx->backup_cycle = 1;
                 }
             } else {
@@ -474,9 +486,9 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
         }
     }
 
-    if (all_blacklisted) {
+    if (ctx->all_blacklisted) {
         ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-                      "all upstreams in upstrand \"%V\" blacklisted, "
+                      "all upstreams in upstrand \"%V\" are blacklisted, "
                       "whitelisting them", &upstrand->name);
         ctx->cur = start_cur;
         ctx->b_cur = start_bcur;
@@ -510,7 +522,7 @@ was_accessed:
     usmf = ngx_http_get_module_main_conf(r, ngx_http_upstream_module);
     uscfp = usmf->upstreams.elts;
 
-    if (ctx->backup_cycle) {
+    if (ctx->backup_cycle && bu_nelts > 0) {
         val = uscfp[bu_elts[ctx->b_cur].index]->host;
     } else {
         val = uscfp[u_elts[ctx->cur].index]->host;
