@@ -20,12 +20,12 @@
 
 
 typedef struct {
-    ngx_array_t                upstrands;
+    ngx_array_t                              upstrands;
 } ngx_http_upstrand_main_conf_t;
 
 
 typedef struct {
-    ngx_array_t                dyn_upstrands;
+    ngx_array_t                              dyn_upstrands;
 } ngx_http_upstrand_loc_conf_t;
 
 
@@ -36,69 +36,79 @@ typedef enum {
 
 
 typedef struct {
-    ngx_str_t                  name;
-    ngx_array_t                upstreams;
-    ngx_array_t                b_upstreams;
-    ngx_array_t                next_upstream_statuses;
-    ngx_int_t                  cur;
-    ngx_int_t                  b_cur;
-    ngx_http_upstrand_order_e  order;
-    ngx_uint_t                 order_per_request:1;
-    ngx_uint_t                 debug_intermediate_stages:1;
+    ngx_str_t                                name;
+    ngx_array_t                              upstreams;
+    ngx_array_t                              b_upstreams;
+    ngx_array_t                              next_upstream_statuses;
+    ngx_int_t                                cur;
+    ngx_int_t                                b_cur;
+    ngx_http_upstrand_order_e                order;
+    ngx_uint_t                               order_per_request:1;
+    ngx_uint_t                               debug_intermediate_stages:1;
 } ngx_http_upstrand_conf_t;
 
 
 typedef struct {
-    time_t                     blacklist_interval;
-    time_t                     blacklist_last_occurrence;
-    ngx_uint_t                 index;
+    time_t                                   blacklist_interval;
+    time_t                                   blacklist_last_occurrence;
+    ngx_uint_t                               index;
 } ngx_http_upstrand_upstream_conf_t;
 
 
 typedef struct {
-    ngx_http_upstrand_conf_t  *upstrand;
-    ngx_conf_t                *cf;
-    ngx_uint_t                 order_done:1;
+    ngx_http_upstrand_conf_t                *upstrand;
+    ngx_conf_t                              *cf;
+    ngx_uint_t                               order_done:1;
 } ngx_http_upstrand_conf_ctx_t;
 
 
+/* there is no useful typedef for finalize_request in ngx_http_upstream.h */
+typedef void (*upstream_finalize_request_pt)(ngx_http_request_t *, ngx_int_t);
+
+
 typedef struct {
-    ngx_http_request_t        *r;
-    ngx_http_upstrand_conf_t  *upstrand;
-    ngx_str_t                  cur_upstream;
-    ngx_array_t                upstreams;
-    ngx_array_t                upstream_addr;
-    ngx_array_t                upstream_cache_status;
-    ngx_array_t                upstream_connect_time;
-    ngx_array_t                upstream_header_time;
-    ngx_array_t                upstream_response_length;
-    ngx_array_t                upstream_response_time;
-    ngx_array_t                upstream_status;
-    ngx_int_t                  start_cur;
-    ngx_int_t                  start_bcur;
-    ngx_int_t                  cur;
-    ngx_int_t                  b_cur;
-    ngx_uint_t                 last;
-    ngx_uint_t                 backup_cycle:1;
-    ngx_uint_t                 all_blacklisted:1;
-    ngx_uint_t                 debug_intermediate_stages:1;
+    ngx_uint_t                               last;
+    upstream_finalize_request_pt             upstream_finalize_request;
+} ngx_http_upstrand_request_common_ctx_t;
+
+
+typedef struct {
+    ngx_http_request_t                      *r;
+    ngx_http_upstrand_conf_t                *upstrand;
+    ngx_str_t                                cur_upstream;
+    ngx_array_t                              upstreams;
+    ngx_array_t                              upstream_addr;
+    ngx_array_t                              upstream_cache_status;
+    ngx_array_t                              upstream_connect_time;
+    ngx_array_t                              upstream_header_time;
+    ngx_array_t                              upstream_response_length;
+    ngx_array_t                              upstream_response_time;
+    ngx_array_t                              upstream_status;
+    ngx_int_t                                start_cur;
+    ngx_int_t                                start_bcur;
+    ngx_int_t                                cur;
+    ngx_int_t                                b_cur;
+    ngx_http_upstrand_request_common_ctx_t   common;
+    ngx_uint_t                               backup_cycle:1;
+    ngx_uint_t                               all_blacklisted:1;
+    ngx_uint_t                               debug_intermediate_stages:1;
 } ngx_http_upstrand_request_ctx_t;
 
 
 typedef struct {
-    ngx_uint_t                 last;
+    ngx_http_upstrand_request_common_ctx_t   common;
 } ngx_http_upstrand_subrequest_ctx_t;
 
 
 typedef struct {
-    ngx_str_t                  key;
-    ngx_int_t                  index;
+    ngx_str_t                                key;
+    ngx_int_t                                index;
 }  ngx_http_cu_varhandle_t;
 
 
 typedef struct {
-    ngx_array_t                data;
-    ngx_int_t                  index;
+    ngx_array_t                              data;
+    ngx_int_t                                index;
 } ngx_http_cu_varlist_elem_t;
 
 
@@ -124,7 +134,8 @@ static ngx_int_t ngx_http_upstrand_response_header_filter(
     ngx_http_request_t *r);
 static ngx_int_t ngx_http_upstrand_response_body_filter(ngx_http_request_t *r,
     ngx_chain_t *in);
-static ngx_int_t ngx_http_upstrand_check_upstream_vars(ngx_http_request_t *r);
+static void ngx_http_upstrand_check_upstream_vars(ngx_http_request_t *r,
+    ngx_int_t rc);
 static char *ngx_http_upstrand_block(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
 static char *ngx_http_upstrand(ngx_conf_t *cf, ngx_command_t *dummy,
@@ -262,13 +273,13 @@ ngx_http_upstrand_init(ngx_conf_t *cf)
 static ngx_int_t
 ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
 {
-    ngx_uint_t                           i;
-    ngx_http_upstrand_request_ctx_t     *ctx;
-    ngx_http_upstrand_subrequest_ctx_t  *sr_ctx;
-    ngx_uint_t                          *last;
-    ngx_int_t                            status;
-    ngx_int_t                           *next_upstream_statuses;
-    ngx_uint_t                           is_next_upstream_status;
+    ngx_uint_t                               i;
+    ngx_http_upstrand_request_ctx_t         *ctx;
+    ngx_http_upstrand_subrequest_ctx_t      *sr_ctx;
+    ngx_http_upstrand_request_common_ctx_t  *common;
+    ngx_int_t                                status;
+    ngx_int_t                               *next_upstream_statuses;
+    ngx_uint_t                               is_next_upstream_status;
 
     ctx = ngx_http_get_module_ctx(r->main, ngx_http_combined_upstreams_module);
     if (ctx == NULL) {
@@ -281,7 +292,7 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
             return NGX_ERROR;
         }
     }
-    last = r == ctx->r ? &ctx->last : &sr_ctx->last;
+    common = r == ctx->r ? &ctx->common : &sr_ctx->common;
 
     status = r->headers_out.status;
 
@@ -301,7 +312,12 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
         }
     }
 
-    (void) ngx_http_upstrand_check_upstream_vars(r);
+    if (r->upstream) {
+        if (r->upstream->finalize_request) {
+            common->upstream_finalize_request = r->upstream->finalize_request;
+        }
+        r->upstream->finalize_request = ngx_http_upstrand_check_upstream_vars;
+    }
 
     if (is_next_upstream_status) {
         ngx_http_upstrand_upstream_conf_t  *u_elts, *bu_elts;
@@ -325,7 +341,7 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
             }
         }
 
-        if (!*last) {
+        if (!common->last) {
             ngx_http_request_t  *sr;
 
             if (ngx_http_subrequest(r, &r->main->uri, &r->main->args, &sr,
@@ -341,10 +357,10 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
             return NGX_OK;
         }
     } else {
-        *last = 1;
+        common->last = 1;
     }
 
-    if (r != r->main && *last) {
+    if (r != r->main && common->last) {
         /* copy HTTP headers to main request */
         r->main->headers_out = r->headers_out;
 
@@ -358,9 +374,9 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
 static ngx_int_t
 ngx_http_upstrand_response_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
 {
-    ngx_http_upstrand_request_ctx_t     *ctx;
-    ngx_http_upstrand_subrequest_ctx_t  *sr_ctx;
-    ngx_uint_t                           last;
+    ngx_http_upstrand_request_ctx_t         *ctx;
+    ngx_http_upstrand_subrequest_ctx_t      *sr_ctx;
+    ngx_http_upstrand_request_common_ctx_t  *common;
 
     ctx = ngx_http_get_module_ctx(r->main, ngx_http_combined_upstreams_module);
     if (ctx == NULL) {
@@ -374,9 +390,9 @@ ngx_http_upstrand_response_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
         }
     }
 
-    last = r == ctx->r ? ctx->last : sr_ctx->last;
+    common = r == ctx->r ? &ctx->common : &sr_ctx->common;
 
-    if (!last) {
+    if (!common->last) {
         /* if upstream buffering is off then its out_bufs must be updated
          * right here! (at least in nginx 1.8.0) */
         if (!ctx->debug_intermediate_stages
@@ -403,24 +419,34 @@ ngx_http_upstrand_response_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
 }
 
 
-static ngx_int_t
-ngx_http_upstrand_check_upstream_vars(ngx_http_request_t *r)
+static void
+ngx_http_upstrand_check_upstream_vars(ngx_http_request_t *r, ngx_int_t  rc)
 {
-    ngx_uint_t                        i;
-    ngx_http_upstrand_request_ctx_t  *ctx;
-    ngx_http_variable_value_t        *var;
-    ngx_str_t                         var_name, *res;
-    ngx_int_t                         key;
-    ngx_array_t                      *data = NULL;
+    ngx_uint_t                               i;
+    ngx_http_upstrand_request_ctx_t         *ctx;
+    ngx_http_upstrand_subrequest_ctx_t      *sr_ctx;
+    ngx_http_upstrand_request_common_ctx_t  *common;
+    ngx_http_variable_value_t               *var;
+    ngx_str_t                                var_name, *res;
+    ngx_int_t                                key;
+    ngx_array_t                             *data = NULL;
 
     ctx = ngx_http_get_module_ctx(r->main, ngx_http_combined_upstreams_module);
     if (ctx == NULL) {
-        return NGX_ERROR;
+        return;
     }
+
+    if (r != ctx->r) {
+        sr_ctx = ngx_http_get_module_ctx(r, ngx_http_combined_upstreams_module);
+        if (sr_ctx == NULL) {
+            return;
+        }
+    }
+    common = r == ctx->r ? &ctx->common : &sr_ctx->common;
 
     res = ngx_array_push(&ctx->upstreams);
     if (res == NULL) {
-        return NGX_ERROR;
+        return;
     }
     res->len = ctx->cur_upstream.len;
     res->data = ctx->cur_upstream.data;
@@ -431,7 +457,7 @@ ngx_http_upstrand_check_upstream_vars(ngx_http_request_t *r)
 
         var = ngx_http_get_variable(r, &var_name, key);
         if (var == NULL) {
-            return NGX_ERROR;
+            return;
         }
 
         switch (i) {
@@ -463,13 +489,15 @@ ngx_http_upstrand_check_upstream_vars(ngx_http_request_t *r)
         
         res = ngx_array_push(data);
         if (res == NULL) {
-            return NGX_ERROR;
+            return;
         }
         res->len = var->len;
         res->data = var->data;
     }
 
-    return NGX_OK;
+    if (common->upstream_finalize_request) {
+        common->upstream_finalize_request(r, rc);
+    }
 }
 
 
@@ -479,18 +507,18 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
 {
     ngx_http_upstrand_conf_t  *upstrand = (ngx_http_upstrand_conf_t *) data;
 
-    ngx_uint_t                            i;
-    ngx_http_upstrand_request_ctx_t      *ctx;
-    ngx_http_upstrand_subrequest_ctx_t   *sr_ctx;
-    ngx_uint_t                           *last;
-    ngx_http_upstrand_upstream_conf_t    *u_elts, *bu_elts;
-    ngx_uint_t                            u_nelts, bu_nelts;
-    ngx_http_upstream_main_conf_t        *usmf;
-    ngx_http_upstream_srv_conf_t        **uscfp;
-    time_t                                now;
-    ngx_int_t                             start_cur, start_bcur;
-    ngx_int_t                             cur_cur, cur_bcur;
-    ngx_uint_t                            force_last = 0;
+    ngx_uint_t                                i;
+    ngx_http_upstrand_request_ctx_t          *ctx;
+    ngx_http_upstrand_subrequest_ctx_t       *sr_ctx;
+    ngx_http_upstrand_request_common_ctx_t   *common;
+    ngx_http_upstrand_upstream_conf_t        *u_elts, *bu_elts;
+    ngx_uint_t                                u_nelts, bu_nelts;
+    ngx_http_upstream_main_conf_t            *usmf;
+    ngx_http_upstream_srv_conf_t            **uscfp;
+    time_t                                    now;
+    ngx_int_t                                 start_cur, start_bcur;
+    ngx_int_t                                 cur_cur, cur_bcur;
+    ngx_uint_t                                force_last = 0;
 
     ctx = ngx_http_get_module_ctx(r->main, ngx_http_combined_upstreams_module);
 
@@ -655,7 +683,7 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
             return NGX_ERROR;
         }
     }
-    last = r == ctx->r ? &ctx->last : &sr_ctx->last;
+    common = r == ctx->r ? &ctx->common : &sr_ctx->common;
 
     if (force_last ||
         (bu_nelts == 0 &&
@@ -663,7 +691,7 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
         (ctx->backup_cycle &&
          (ctx->b_cur + 1) % bu_nelts == (ngx_uint_t) ctx->start_bcur))
     {
-        *last = 1;
+        common->last = 1;
     }
 
 was_accessed:
