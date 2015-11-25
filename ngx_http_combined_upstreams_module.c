@@ -65,14 +65,18 @@ typedef struct {
 typedef struct {
     ngx_http_request_t        *r;
     ngx_http_upstrand_conf_t  *upstrand;
+    ngx_str_t                  cur_upstream;
+    ngx_array_t                upstreams;
+    ngx_array_t                upstream_addr;
+    ngx_array_t                upstream_response_time;
     ngx_int_t                  start_cur;
     ngx_int_t                  start_bcur;
     ngx_int_t                  cur;
     ngx_int_t                  b_cur;
     ngx_uint_t                 last;
     ngx_uint_t                 backup_cycle:1;
-    ngx_uint_t                 debug_intermediate_stages:1;
     ngx_uint_t                 all_blacklisted:1;
+    ngx_uint_t                 debug_intermediate_stages:1;
 } ngx_http_upstrand_request_ctx_t;
 
 
@@ -93,15 +97,24 @@ typedef struct {
 } ngx_http_cu_varlist_elem_t;
 
 
+static const ngx_str_t upstream_vars[] =
+{
+    ngx_string("upstream_addr"),
+    ngx_string("upstream_response_time")
+};
+
+
 static ngx_int_t ngx_http_upstrand_init(ngx_conf_t *cf);
 static void *ngx_http_upstrand_create_main_conf(ngx_conf_t *cf);
 static void *ngx_http_upstrand_create_loc_conf(ngx_conf_t *cf);
 static char *ngx_http_upstrand_merge_loc_conf(ngx_conf_t *cf,
     void *parent, void *child);
+static ngx_int_t ngx_http_combined_upstreams_add_vars(ngx_conf_t *cf);
 static ngx_int_t ngx_http_upstrand_response_header_filter(
     ngx_http_request_t *r);
 static ngx_int_t ngx_http_upstrand_response_body_filter(ngx_http_request_t *r,
     ngx_chain_t *in);
+static ngx_int_t ngx_http_upstrand_check_upstream_vars(ngx_http_request_t *r);
 static char *ngx_http_upstrand_block(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
 static char *ngx_http_upstrand(ngx_conf_t *cf, ngx_command_t *dummy,
@@ -118,6 +131,9 @@ static ngx_int_t ngx_http_upstrand_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
 static ngx_int_t ngx_http_get_dynamic_upstrand_value(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
+static ngx_int_t ngx_http_get_upstrand_var_value(ngx_http_request_t *r,
+    ngx_http_variable_value_t *v, uintptr_t data);
+
 
 static char *ngx_http_add_upstream(ngx_conf_t *cf,
     ngx_command_t *cmd, void *conf);
@@ -160,8 +176,22 @@ static ngx_command_t  ngx_http_combined_upstreams_commands[] = {
 };
 
 
+static ngx_http_variable_t  ngx_http_conbined_upstreams_vars[] =
+{
+    { ngx_string("upstrand_addr"), NULL,
+      ngx_http_get_upstrand_var_value, (uintptr_t) &upstream_vars[0],
+      NGX_HTTP_VAR_NOCACHEABLE, 0 },
+    { ngx_string("upstrand_response_time"), NULL,
+      ngx_http_get_upstrand_var_value, (uintptr_t) &upstream_vars[1],
+      NGX_HTTP_VAR_NOCACHEABLE, 0 },
+
+    { ngx_null_string, NULL, NULL, 0, 0, 0 }
+};
+
+
+
 static ngx_http_module_t  ngx_http_combined_upstreams_module_ctx = {
-    NULL,                                    /* preconfiguration */
+    ngx_http_combined_upstreams_add_vars,    /* preconfiguration */
     ngx_http_upstrand_init,                  /* postconfiguration */
 
     ngx_http_upstrand_create_main_conf,      /* create main configuration */
@@ -212,7 +242,6 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
     ngx_http_upstrand_subrequest_ctx_t  *sr_ctx;
     ngx_uint_t                          *last;
     ngx_int_t                            status;
-    ngx_http_request_t                  *sr;
     ngx_int_t                           *next_upstream_statuses;
     ngx_uint_t                           is_next_upstream_status;
 
@@ -247,6 +276,8 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
         }
     }
 
+    (void) ngx_http_upstrand_check_upstream_vars(r);
+
     if (is_next_upstream_status) {
         ngx_http_upstrand_upstream_conf_t  *u_elts, *bu_elts;
         ngx_uint_t                          bu_nelts;
@@ -270,6 +301,8 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
         }
 
         if (!*last) {
+            ngx_http_request_t  *sr;
+
             if (ngx_http_subrequest(r, &r->main->uri, &r->main->args, &sr,
                                     NULL, 0) != NGX_OK)
             {
@@ -346,13 +379,67 @@ ngx_http_upstrand_response_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
 
 
 static ngx_int_t
+ngx_http_upstrand_check_upstream_vars(ngx_http_request_t *r)
+{
+    ngx_uint_t                        i;
+    ngx_http_upstrand_request_ctx_t  *ctx;
+    ngx_http_variable_value_t        *var;
+    ngx_str_t                         var_name, *res;
+    ngx_int_t                         key;
+    ngx_array_t                      *data = NULL;
+
+    ctx = ngx_http_get_module_ctx(r->main, ngx_http_combined_upstreams_module);
+    if (ctx == NULL) {
+        return NGX_ERROR;
+    }
+
+    res = ngx_array_push(&ctx->upstreams);
+    if (res == NULL) {
+        return NGX_ERROR;
+    }
+    res->len = ctx->cur_upstream.len;
+    res->data = ctx->cur_upstream.data;
+
+    for (i = 0; i < sizeof(upstream_vars) / sizeof (upstream_vars[0]); i++) {
+        var_name = upstream_vars[i];
+        key = ngx_hash_key(var_name.data, var_name.len);
+
+        var = ngx_http_get_variable(r, &var_name, key);
+        if (var == NULL) {
+            return NGX_ERROR;
+        }
+
+        switch (i) {
+        case 0:
+            data = &ctx->upstream_addr;
+            break;
+        case 1:
+            data = &ctx->upstream_response_time;
+            break;
+        }
+        if (data == NULL) {
+            continue;
+        }
+        
+        res = ngx_array_push(data);
+        if (res == NULL) {
+            return NGX_ERROR;
+        }
+        res->len = var->len;
+        res->data = var->data;
+    }
+
+    return NGX_OK;
+}
+
+
+static ngx_int_t
 ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
     uintptr_t data)
 {
     ngx_http_upstrand_conf_t  *upstrand = (ngx_http_upstrand_conf_t *) data;
 
     ngx_uint_t                            i;
-    ngx_str_t                             val;
     ngx_http_upstrand_request_ctx_t      *ctx;
     ngx_http_upstrand_subrequest_ctx_t   *sr_ctx;
     ngx_uint_t                           *last;
@@ -389,6 +476,21 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
 
         ctx->r = r;
         ctx->upstrand = upstrand;
+        if (ngx_array_init(&ctx->upstreams, r->pool, 1, sizeof(ngx_str_t))
+            != NGX_OK)
+        {
+            return NGX_ERROR;
+        }
+        if (ngx_array_init(&ctx->upstream_addr, r->pool, 1,
+                           sizeof(ngx_str_t)) != NGX_OK)
+        {
+            return NGX_ERROR;
+        }
+        if (ngx_array_init(&ctx->upstream_response_time, r->pool, 1,
+                           sizeof(ngx_str_t)) != NGX_OK)
+        {
+            return NGX_ERROR;
+        }
         if (upstrand->order_per_request &&
             upstrand->order == ngx_http_upstrand_order_start_random)
         {
@@ -523,15 +625,15 @@ was_accessed:
     uscfp = usmf->upstreams.elts;
 
     if (ctx->backup_cycle && bu_nelts > 0) {
-        val = uscfp[bu_elts[ctx->b_cur].index]->host;
+        ctx->cur_upstream = uscfp[bu_elts[ctx->b_cur].index]->host;
     } else {
-        val = uscfp[u_elts[ctx->cur].index]->host;
+        ctx->cur_upstream = uscfp[u_elts[ctx->cur].index]->host;
     }
 
     v->valid = 1;
     v->not_found = 0;
-    v->len = val.len;
-    v->data = val.data;
+    v->len = ctx->cur_upstream.len;
+    v->data = ctx->cur_upstream.data;
 
     return NGX_OK;
 }
@@ -614,7 +716,7 @@ ngx_http_get_dynamic_upstrand_value(ngx_http_request_t *r,
         break;
     }
 
-    if (v == NULL) {
+    if (upstrand_var == NULL) {
         v->len = 0;
         v->data = (u_char *) "";
         v->valid = 1;
@@ -623,6 +725,81 @@ ngx_http_get_dynamic_upstrand_value(ngx_http_request_t *r,
     } else {
         *v = *upstrand_var;
     }
+
+    return NGX_OK;
+}
+
+
+static ngx_int_t
+ngx_http_get_upstrand_var_value(ngx_http_request_t *r,
+    ngx_http_variable_value_t *v, uintptr_t  data)
+{
+    ngx_uint_t                        i, len = 0, cur_len = 0;
+    ngx_http_upstrand_request_ctx_t  *ctx;
+    ngx_str_t                        *upstreams, *var_data;
+    ngx_str_t                        *tag;
+    ngx_uint_t                        nelts = 0;
+
+    ctx = ngx_http_get_module_ctx(r->main, ngx_http_combined_upstreams_module);
+    if (ctx == NULL) {
+        return NGX_ERROR;
+    }
+
+    tag = (ngx_str_t *) data;
+    do {
+        if (tag->len == 13 &&
+            ngx_strncmp(tag->data + 9, "addr", 4) == 0)
+        {
+            nelts = ctx->upstream_addr.nelts;
+            var_data = ctx->upstream_addr.elts;
+            break;
+        }
+        if (tag->len == 26 &&
+            ngx_strncmp(tag->data + 9, "response_time", 13) == 0)
+        {
+            nelts = ctx->upstream_response_time.nelts;
+            var_data = ctx->upstream_response_time.elts;
+            break;
+        }
+        break;
+    } while (1);
+
+    if (nelts == 0 || ctx->upstreams.nelts != nelts) {
+        return NGX_ERROR;
+    }
+
+    upstreams = ctx->upstreams.elts;
+
+    for (i = 0; i < ctx->upstreams.nelts; i++) {
+        len += upstreams[i].len + 4 + var_data[i].len;
+    }
+
+    v->data = (u_char *) "";
+
+    if (len > 0) {
+        --len;
+
+        v->data = ngx_pnalloc(r->pool, len);
+        if (v->data == NULL) {
+            return NGX_ERROR;
+        }
+
+        for (i = 0; i < ctx->upstreams.nelts; i++) {
+            ngx_memcpy(v->data + cur_len, i == 0 ? "(" : " (", i == 0 ? 1 : 2);
+            cur_len += (i == 0 ? 1 : 2);
+            ngx_memcpy(v->data + cur_len, upstreams[i].data, upstreams[i].len);
+            cur_len += upstreams[i].len;
+            ngx_memcpy(v->data + cur_len, ") ", 2);
+            cur_len += 2;
+            ngx_memcpy(v->data + cur_len, var_data[i].data, var_data[i].len);
+            cur_len += var_data[i].len;
+        }
+    }
+
+    v->len = len;
+    v->valid = 1;
+    v->no_cacheable = 0;
+    v->not_found = 0;
 
     return NGX_OK;
 }
@@ -689,6 +866,26 @@ ngx_http_upstrand_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
 
     return NGX_CONF_OK;
 }
+
+
+static ngx_int_t
+ngx_http_combined_upstreams_add_vars(ngx_conf_t *cf)
+{
+    ngx_http_variable_t  *var, *v;
+
+    for (v = ngx_http_conbined_upstreams_vars; v->name.len; v++) {
+        var = ngx_http_add_variable(cf, &v->name, v->flags);
+        if (var == NULL) {
+            return NGX_ERROR;
+        }
+
+        var->get_handler = v->get_handler;
+        var->data = v->data;
+    }
+
+    return NGX_OK;
+}
+
 
 
 static char *
@@ -1023,19 +1220,16 @@ ngx_http_dynamic_upstrand(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     }
 
     v = ngx_http_add_variable(cf, &value[1], NGX_HTTP_VAR_CHANGEABLE);
-
     if (v == NULL) {
         return NGX_CONF_ERROR;
     }
 
     v_idx = ngx_http_get_variable_index(cf, &value[1]);
-
     if (v_idx == NGX_ERROR) {
         return NGX_CONF_ERROR;
     }
 
     v_idx_ptr = ngx_palloc(cf->pool, sizeof(ngx_uint_t));
-
     if (v_idx_ptr == NULL) {
         return NGX_CONF_ERROR;
     }
