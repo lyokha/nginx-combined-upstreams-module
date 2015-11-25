@@ -68,7 +68,12 @@ typedef struct {
     ngx_str_t                  cur_upstream;
     ngx_array_t                upstreams;
     ngx_array_t                upstream_addr;
+    ngx_array_t                upstream_cache_status;
+    ngx_array_t                upstream_connect_time;
+    ngx_array_t                upstream_header_time;
+    ngx_array_t                upstream_response_length;
     ngx_array_t                upstream_response_time;
+    ngx_array_t                upstream_status;
     ngx_int_t                  start_cur;
     ngx_int_t                  start_bcur;
     ngx_int_t                  cur;
@@ -100,7 +105,12 @@ typedef struct {
 static const ngx_str_t upstream_vars[] =
 {
     ngx_string("upstream_addr"),
-    ngx_string("upstream_response_time")
+    ngx_string("upstream_cache_status"),
+    ngx_string("upstream_connect_time"),
+    ngx_string("upstream_header_time"),
+    ngx_string("upstream_response_length"),
+    ngx_string("upstream_response_time"),
+    ngx_string("upstream_status")
 };
 
 
@@ -131,7 +141,7 @@ static ngx_int_t ngx_http_upstrand_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
 static ngx_int_t ngx_http_get_dynamic_upstrand_value(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
-static ngx_int_t ngx_http_get_upstrand_var_value(ngx_http_request_t *r,
+static ngx_int_t ngx_http_get_upstrand_status_var_value(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
 
 
@@ -179,10 +189,25 @@ static ngx_command_t  ngx_http_combined_upstreams_commands[] = {
 static ngx_http_variable_t  ngx_http_conbined_upstreams_vars[] =
 {
     { ngx_string("upstrand_addr"), NULL,
-      ngx_http_get_upstrand_var_value, (uintptr_t) &upstream_vars[0],
+      ngx_http_get_upstrand_status_var_value, (uintptr_t) &upstream_vars[0],
+      NGX_HTTP_VAR_NOCACHEABLE, 0 },
+    { ngx_string("upstrand_cache_status"), NULL,
+      ngx_http_get_upstrand_status_var_value, (uintptr_t) &upstream_vars[1],
+      NGX_HTTP_VAR_NOCACHEABLE, 0 },
+    { ngx_string("upstrand_connect_time"), NULL,
+      ngx_http_get_upstrand_status_var_value, (uintptr_t) &upstream_vars[2],
+      NGX_HTTP_VAR_NOCACHEABLE, 0 },
+    { ngx_string("upstrand_header_time"), NULL,
+      ngx_http_get_upstrand_status_var_value, (uintptr_t) &upstream_vars[3],
+      NGX_HTTP_VAR_NOCACHEABLE, 0 },
+    { ngx_string("upstrand_response_length"), NULL,
+      ngx_http_get_upstrand_status_var_value, (uintptr_t) &upstream_vars[4],
       NGX_HTTP_VAR_NOCACHEABLE, 0 },
     { ngx_string("upstrand_response_time"), NULL,
-      ngx_http_get_upstrand_var_value, (uintptr_t) &upstream_vars[1],
+      ngx_http_get_upstrand_status_var_value, (uintptr_t) &upstream_vars[5],
+      NGX_HTTP_VAR_NOCACHEABLE, 0 },
+    { ngx_string("upstrand_status"), NULL,
+      ngx_http_get_upstrand_status_var_value, (uintptr_t) &upstream_vars[6],
       NGX_HTTP_VAR_NOCACHEABLE, 0 },
 
     { ngx_null_string, NULL, NULL, 0, 0, 0 }
@@ -414,7 +439,22 @@ ngx_http_upstrand_check_upstream_vars(ngx_http_request_t *r)
             data = &ctx->upstream_addr;
             break;
         case 1:
+            data = &ctx->upstream_cache_status;
+            break;
+        case 2:
+            data = &ctx->upstream_connect_time;
+            break;
+        case 3:
+            data = &ctx->upstream_header_time;
+            break;
+        case 4:
+            data = &ctx->upstream_response_length;
+            break;
+        case 5:
             data = &ctx->upstream_response_time;
+            break;
+        case 6:
+            data = &ctx->upstream_status;
             break;
         }
         if (data == NULL) {
@@ -482,11 +522,18 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
             return NGX_ERROR;
         }
         if (ngx_array_init(&ctx->upstream_addr, r->pool, 1,
-                           sizeof(ngx_str_t)) != NGX_OK)
-        {
-            return NGX_ERROR;
-        }
-        if (ngx_array_init(&ctx->upstream_response_time, r->pool, 1,
+                           sizeof(ngx_str_t)) != NGX_OK ||
+            ngx_array_init(&ctx->upstream_cache_status, r->pool, 1,
+                           sizeof(ngx_str_t)) != NGX_OK ||
+            ngx_array_init(&ctx->upstream_connect_time, r->pool, 1,
+                           sizeof(ngx_str_t)) != NGX_OK ||
+            ngx_array_init(&ctx->upstream_header_time, r->pool, 1,
+                           sizeof(ngx_str_t)) != NGX_OK ||
+            ngx_array_init(&ctx->upstream_response_length, r->pool, 1,
+                           sizeof(ngx_str_t)) != NGX_OK ||
+            ngx_array_init(&ctx->upstream_response_time, r->pool, 1,
+                           sizeof(ngx_str_t)) != NGX_OK ||
+            ngx_array_init(&ctx->upstream_status, r->pool, 1,
                            sizeof(ngx_str_t)) != NGX_OK)
         {
             return NGX_ERROR;
@@ -731,7 +778,7 @@ ngx_http_get_dynamic_upstrand_value(ngx_http_request_t *r,
 
 
 static ngx_int_t
-ngx_http_get_upstrand_var_value(ngx_http_request_t *r,
+ngx_http_get_upstrand_status_var_value(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t  data)
 {
     ngx_uint_t                        i, len = 0, cur_len = 0;
@@ -754,11 +801,46 @@ ngx_http_get_upstrand_var_value(ngx_http_request_t *r,
             var_data = ctx->upstream_addr.elts;
             break;
         }
-        if (tag->len == 26 &&
+        if (tag->len == 21 &&
+            ngx_strncmp(tag->data + 9, "cache_status", 12) == 0)
+        {
+            nelts = ctx->upstream_cache_status.nelts;
+            var_data = ctx->upstream_cache_status.elts;
+            break;
+        }
+        if (tag->len == 21 &&
+            ngx_strncmp(tag->data + 9, "connect_time", 12) == 0)
+        {
+            nelts = ctx->upstream_connect_time.nelts;
+            var_data = ctx->upstream_connect_time.elts;
+            break;
+        }
+        if (tag->len == 20 &&
+            ngx_strncmp(tag->data + 9, "header_time", 11) == 0)
+        {
+            nelts = ctx->upstream_header_time.nelts;
+            var_data = ctx->upstream_header_time.elts;
+            break;
+        }
+        if (tag->len == 24 &&
+            ngx_strncmp(tag->data + 9, "response_length", 15) == 0)
+        {
+            nelts = ctx->upstream_response_length.nelts;
+            var_data = ctx->upstream_response_length.elts;
+            break;
+        }
+        if (tag->len == 22 &&
             ngx_strncmp(tag->data + 9, "response_time", 13) == 0)
         {
             nelts = ctx->upstream_response_time.nelts;
             var_data = ctx->upstream_response_time.elts;
+            break;
+        }
+        if (tag->len == 15 &&
+            ngx_strncmp(tag->data + 9, "status", 6) == 0)
+        {
+            nelts = ctx->upstream_status.nelts;
+            var_data = ctx->upstream_status.elts;
             break;
         }
         break;

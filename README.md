@@ -163,6 +163,15 @@ location /us1 {
 But be careful when accessing this variable from other directives! It starts up
 the subrequests machinery which may be not desirable in many cases.
 
+### Upstrand status variables
+
+There are a number of upstrand status variables available: *upstrand_addr*,
+*upstrand_cache_status*, *upstrand_connect_time*, *upstrand_header_time*,
+*upstrand_response_length*, *upstrand_response_time* and *upstrand_status*. They
+all are counterparts of corresponding *upstream* variables and contain the
+values of the latter for all upstreams passed through a request and all
+subrequests chronologically.
+
 ### Where this can be useful
 
 The *upstrand* looks very similar to a simple combined upstream but it also has
