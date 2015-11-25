@@ -440,7 +440,7 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
     start_cur = cur_cur = ctx->cur;
     start_bcur = cur_bcur = ctx->b_cur;
 
-    while (1) {
+    for ( ;; ) {
         if (ctx->backup_cycle) {
             if (bu_nelts > 0) {
                 if (difftime(now, bu_elts[ctx->b_cur].blacklist_last_occurrence)
