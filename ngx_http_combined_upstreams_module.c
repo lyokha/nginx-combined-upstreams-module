@@ -471,7 +471,7 @@ ngx_http_upstrand_check_upstream_vars(ngx_http_request_t *r, ngx_int_t  rc)
             return;
         }
 
-        if (!var->valid) {
+        if (!var->valid || !var->not_found || var->len == 0) {
             status->data[i].len = 0;
             status->data[i].data = (u_char *) "";
             continue;
