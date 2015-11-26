@@ -403,7 +403,6 @@ ngx_http_upstrand_response_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
             return NGX_ERROR;
         }
     }
-
     common = r == ctx->r ? &ctx->common : &sr_ctx->common;
 
     if (!common->last) {
@@ -444,7 +443,6 @@ ngx_http_upstrand_check_upstream_vars(ngx_http_request_t *r, ngx_int_t  rc)
     ngx_str_t                                var_name;
     ngx_int_t                                key;
     ngx_http_upstrand_status_data_t         *upstreams, *status = NULL;
-    ngx_str_t                               *data = NULL;
 
     ctx = ngx_http_get_module_ctx(r->main, ngx_http_combined_upstreams_module);
     if (ctx == NULL) {
