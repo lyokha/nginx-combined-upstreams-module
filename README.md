@@ -170,7 +170,8 @@ There are a number of upstrand status variables available: *upstrand_addr*,
 *upstrand_response_length*, *upstrand_response_time* and *upstrand_status*. They
 all are counterparts of corresponding *upstream* variables and contain the
 values of the latter for all upstreams passed through a request and all
-subrequests chronologically.
+subrequests chronologically. Variable *upstrand_path* contains path of all
+upstreams visited during request.
 
 ### Where this can be useful
 
