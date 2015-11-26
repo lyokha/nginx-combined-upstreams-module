@@ -18,7 +18,7 @@
 #include <ngx_core.h>
 #include <ngx_http.h>
 
-#define UPSTREAM_VARS_SIZE (sizeof(upstream_vars) / sizeof (upstream_vars[0]))
+#define UPSTREAM_VARS_SIZE (sizeof(upstream_vars) / sizeof(upstream_vars[0]))
 
 
 typedef struct {
