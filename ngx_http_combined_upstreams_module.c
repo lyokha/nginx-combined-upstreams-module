@@ -325,6 +325,7 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
     }
     status_data->r = r;
     status_data->upstream = ctx->cur_upstream;
+    ngx_memset(status_data->data, 0, sizeof(status_data->data));
 
     if (r->upstream) {
         if (r->upstream->finalize_request) {
@@ -470,8 +471,6 @@ ngx_http_upstrand_check_upstream_vars(ngx_http_request_t *r, ngx_int_t  rc)
         }
 
         if (!var->valid || var->not_found || var->len == 0) {
-            status->data[i].len = 0;
-            status->data[i].data = (u_char *) "";
             continue;
         }
 
