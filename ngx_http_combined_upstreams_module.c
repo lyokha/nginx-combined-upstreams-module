@@ -470,7 +470,7 @@ ngx_http_upstrand_check_upstream_vars(ngx_http_request_t *r, ngx_int_t  rc)
             return;
         }
 
-        if (!var->valid || var->not_found || var->len == 0) {
+        if (var->not_found || !var->valid || var->len == 0) {
             continue;
         }
 
