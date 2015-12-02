@@ -245,3 +245,21 @@ value of *arg_a* that points to a valid destination), otherwise (both *arg_b*
 and *arg_a* are not set or empty) the request will be sent to the upstrand
 *us2*.
 
+See also
+--------
+
+There are several articles about the module in my blog, in chronological order:
+
+1. [*Простой модуль nginx для создания комбинированных
+апстримов*](http://lin-techdet.blogspot.ru/2011/10/nginx.html) (in Russian). A
+comprehensive article discovering details of implementation of directive
+*add_upstream* which can also be regarded as a small tutorial for nginx modules
+development.
+2. [*nginx upstrand to configure super-layers of
+upstreams*](http://lin-techdet.blogspot.ru/2015/09/nginx-upstrand-to-configure-super.html).
+An overview of block *upstrand* usage and some details on its implementation.
+3. [*Не такой уж простой модуль nginx для создания комбинированных
+апстримов*](http://lin-techdet.blogspot.ru/2015/12/nginx.html) (in Russian). An
+overview of all features of the module with configuration examples and testing
+session samples.
+
