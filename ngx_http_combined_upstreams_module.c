@@ -977,7 +977,6 @@ ngx_http_combined_upstreams_add_vars(ngx_conf_t *cf)
 }
 
 
-
 static char *
 ngx_http_upstrand_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
