@@ -325,7 +325,7 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
     }
     status_data->r = r;
     status_data->upstream = ctx->cur_upstream;
-    ngx_memset(status_data->data, 0, sizeof(status_data->data));
+    ngx_memzero(&status_data->data, sizeof(status_data->data));
 
     if (r->upstream) {
         if (r->upstream->finalize_request) {
