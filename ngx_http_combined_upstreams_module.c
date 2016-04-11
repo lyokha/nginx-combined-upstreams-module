@@ -283,6 +283,8 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
     ngx_http_upstrand_request_ctx_t         *ctx;
     ngx_http_upstrand_subrequest_ctx_t      *sr_ctx;
     ngx_http_upstrand_request_common_ctx_t  *common;
+    ngx_http_upstream_t                     *u;
+    ngx_connection_t                        *c;
     ngx_int_t                                status;
     ngx_int_t                               *next_upstream_statuses;
     ngx_uint_t                               is_next_upstream_status;
@@ -301,6 +303,9 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
     }
     common = r == ctx->r ? &ctx->common : &sr_ctx->common;
 
+    u = r->upstream;
+    c = u == NULL ? NULL : u->peer.connection;
+
     status = r->headers_out.status;
 
     next_upstream_statuses = ctx->upstrand->next_upstream_statuses.elts;
@@ -312,7 +317,13 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
             ||
             (next_upstream_statuses[i] == -5 && status >= 500 && status < 600)
             ||
-            status == next_upstream_statuses[i])
+            next_upstream_statuses[i] == status
+            ||
+            (next_upstream_statuses[i] == -101
+             && status == NGX_HTTP_BAD_GATEWAY && !c)
+            ||
+            (next_upstream_statuses[i] == -102
+             && status == NGX_HTTP_GATEWAY_TIME_OUT && !c))
         {
             is_next_upstream_status = 1;
             break;
@@ -327,11 +338,11 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
     status_data->upstream = ctx->cur_upstream;
     ngx_memzero(&status_data->data, sizeof(status_data->data));
 
-    if (r->upstream) {
-        if (r->upstream->finalize_request) {
-            common->upstream_finalize_request = r->upstream->finalize_request;
+    if (u) {
+        if (u->finalize_request) {
+            common->upstream_finalize_request = u->finalize_request;
         }
-        r->upstream->finalize_request = ngx_http_upstrand_check_upstream_vars;
+        u->finalize_request = ngx_http_upstrand_check_upstream_vars;
     }
 
     if (is_next_upstream_status) {
@@ -392,6 +403,7 @@ ngx_http_upstrand_response_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
     ngx_http_upstrand_request_ctx_t         *ctx;
     ngx_http_upstrand_subrequest_ctx_t      *sr_ctx;
     ngx_http_upstrand_request_common_ctx_t  *common;
+    ngx_http_upstream_t                     *u;
 
     ctx = ngx_http_get_module_ctx(r->main, ngx_http_combined_upstreams_module);
     if (ctx == NULL) {
@@ -406,13 +418,14 @@ ngx_http_upstrand_response_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
     }
     common = r == ctx->r ? &ctx->common : &sr_ctx->common;
 
+    u = r->upstream;
+
     if (!common->last) {
         /* if upstream buffering is off then its out_bufs must be updated
          * right here! (at least in nginx 1.8.0) */
-        if (!ctx->debug_intermediate_stages
-            && r->upstream && !r->upstream->buffering)
+        if (!ctx->debug_intermediate_stages && u && !u->buffering)
         {
-            r->upstream->out_bufs = NULL;
+            u->out_bufs = NULL;
         }
         return ngx_http_next_body_filter(r,
                                 ctx->debug_intermediate_stages ? in : NULL);
@@ -1212,7 +1225,8 @@ ngx_http_upstrand(ngx_conf_t *cf, ngx_command_t *dummy, void *conf)
             if (*status == NGX_ERROR) {
 
                 if (value[i].len == 3 &&
-                    ngx_strncmp(value[i].data + 1, "xx", 2) == 0) {
+                    ngx_strncmp(value[i].data + 1, "xx", 2) == 0)
+                {
                     switch (value[i].data[0]) {
                     case '4':
                         *status = -4;
@@ -1224,8 +1238,20 @@ ngx_http_upstrand(ngx_conf_t *cf, ngx_command_t *dummy, void *conf)
                         invalid_status = 1;
                         break;
                     }
+
+                } else if (value[i].len == 5 &&
+                           ngx_strncmp(value[i].data, "error", 5) == 0)
+                {
+                    *status = -101;
+
+                } else if (value[i].len == 7 &&
+                           ngx_strncmp(value[i].data, "timeout", 7) == 0)
+                {
+                    *status = -102;
+
                 } else {
                     invalid_status = 1;
+
                 }
 
                 if (invalid_status) {
