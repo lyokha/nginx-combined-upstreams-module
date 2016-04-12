@@ -42,6 +42,7 @@ typedef struct {
     ngx_array_t                              upstreams;
     ngx_array_t                              b_upstreams;
     ngx_array_t                              next_upstream_statuses;
+    ngx_msec_t                               next_upstream_timeout;
     ngx_int_t                                cur;
     ngx_int_t                                b_cur;
     ngx_http_upstrand_order_e                order;
@@ -102,6 +103,7 @@ typedef struct {
     ngx_int_t                                start_bcur;
     ngx_int_t                                cur;
     ngx_int_t                                b_cur;
+    ngx_msec_t                               start_time;
     ngx_http_upstrand_request_common_ctx_t   common;
     ngx_uint_t                               backup_cycle:1;
     ngx_uint_t                               all_blacklisted:1;
@@ -367,20 +369,32 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
             }
         }
 
+        if (u && ctx->start_time == 0) {
+            ctx->start_time = u->peer.start_time;
+        }
+
         if (!common->last) {
             ngx_http_request_t  *sr;
 
-            if (ngx_http_subrequest(r, &r->main->uri, &r->main->args, &sr,
-                                    NULL, 0) != NGX_OK)
+            if (ctx->upstrand->next_upstream_timeout
+                && ngx_current_msec - ctx->start_time
+                    >= ctx->upstrand->next_upstream_timeout)
             {
-                return NGX_ERROR;
+                common->last = 1;
+
+            } else {
+                if (ngx_http_subrequest(r, &r->main->uri, &r->main->args, &sr,
+                                        NULL, 0) != NGX_OK)
+                {
+                    return NGX_ERROR;
+                }
+
+                /* subrequest must use method of the original request */
+                sr->method = r->method;
+                sr->method_name = r->method_name;
+
+                return NGX_OK;
             }
-
-            /* subrequest must use method of the original request */
-            sr->method = r->method;
-            sr->method_name = r->method_name;
-
-            return NGX_OK;
         }
     } else {
         common->last = 1;
@@ -1100,6 +1114,31 @@ ngx_http_upstrand(ngx_conf_t *cf, ngx_command_t *dummy, void *conf)
             ngx_strncmp(value[0].data, "debug_intermediate_stages", 25) == 0)
         {
             ctx->upstrand->debug_intermediate_stages = 1;
+            return NGX_CONF_OK;
+        }
+    }
+
+    if (cf->args->nelts == 2) {
+        if (value[0].len == 21 &&
+            ngx_strncmp(value[0].data, "next_upstream_timeout", 21) == 0)
+        {
+            time_t  timeout;
+
+            if (ctx->upstrand->next_upstream_timeout) {
+                ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                    "duplicate upstrand directive \"next_upstream_timeout\"");
+                return NGX_CONF_ERROR;
+            }
+
+            timeout = ngx_parse_time(&value[1], 1);
+
+            if (timeout == NGX_ERROR) {
+                ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                                   "bad timeout value: \"%V\"", &value[1]);
+                return NGX_CONF_ERROR;
+            }
+
+            ctx->upstrand->next_upstream_timeout = timeout * 1000;
             return NGX_CONF_OK;
         }
     }

@@ -130,6 +130,7 @@ upstrand us1 {
     upstream b01 backup;
     order start_random;
     next_upstream_statuses 204 5xx;
+    next_upstream_timeout 60s;
 }
 ```
 
@@ -140,10 +141,17 @@ responded with statuses listed in directive *next_upstream_statuses* or were
 *blacklisted*. An upstream is set as blacklisted when it has parameter
 *blacklist_interval* and responded with a status listed in the
 *next_upstream_statuses*. Blacklisting state is not shared between nginx worker
-processes. The directive *next_upstream_statuses* accepts *4xx* and *5xx*
-statuses notation and values *error* and *timeout* to distinguish between cases
-when errors happen with the upstream's peer connection from those when backends
-send statuses *502* or *504* (values *502* and *504* refer to the both cases).
+processes.
+
+Directive *next_upstream_statuses* accepts *4xx* and *5xx* statuses notation and
+values *error* and *timeout* to distinguish between cases when errors happen
+with the upstream's peer connection from those when backends send statuses *502*
+or *504* (values *502* and *504* refer to the both cases).
+
+Directive *next_upstream_timeout* limits the overall duration time the upstrand
+cycles through all of its upstreams. If the time exceeds while the upstrand is
+ready to pass to a next upstream, the last upstream cycle result is returned.
+
 Directive *order* currently accepts only one value *start_random* which means
 that starting upstreams in normal and backup cycles after worker fired up will
 be chosen randomly. Starting upstreams in further requests will be cycled in
