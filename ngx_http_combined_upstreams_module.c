@@ -284,7 +284,6 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
     ngx_http_upstrand_subrequest_ctx_t      *sr_ctx;
     ngx_http_upstrand_request_common_ctx_t  *common;
     ngx_http_upstream_t                     *u;
-    ngx_connection_t                        *c;
     ngx_int_t                                status;
     ngx_int_t                               *next_upstream_statuses;
     ngx_uint_t                               is_next_upstream_status;
@@ -304,7 +303,6 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
     common = r == ctx->r ? &ctx->common : &sr_ctx->common;
 
     u = r->upstream;
-    c = u == NULL ? NULL : u->peer.connection;
 
     status = r->headers_out.status;
 
@@ -320,10 +318,12 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
             next_upstream_statuses[i] == status
             ||
             (next_upstream_statuses[i] == -101
-             && status == NGX_HTTP_BAD_GATEWAY && !c)
+             && status == NGX_HTTP_BAD_GATEWAY
+             && u && u->peer.connection == NULL)
             ||
             (next_upstream_statuses[i] == -102
-             && status == NGX_HTTP_GATEWAY_TIME_OUT && !c))
+             && status == NGX_HTTP_GATEWAY_TIME_OUT
+             && u && u->peer.connection == NULL))
         {
             is_next_upstream_status = 1;
             break;

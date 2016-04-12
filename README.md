@@ -140,15 +140,17 @@ responded with statuses listed in directive *next_upstream_statuses* or were
 *blacklisted*. An upstream is set as blacklisted when it has parameter
 *blacklist_interval* and responded with a status listed in the
 *next_upstream_statuses*. Blacklisting state is not shared between nginx worker
-processes. The *next_upstream_statuses* directive accepts *4xx* and *5xx*
-statuses notation. Directive *order* currently accepts only one value
-*start_random* which means that starting upstreams in normal and backup cycles
-after worker fired up will be chosen randomly. Starting upstreams in further
-requests will be cycled in round-robin manner. Additionally, a modifier
-*per_request* is also accepted in the *order* directive: it turns off the global
-per-worker round-robin cycle. The combination of *per_request* and
-*start_random* makes the starting upstream in every new request be chosen
-randomly.
+processes. The directive *next_upstream_statuses* accepts *4xx* and *5xx*
+statuses notation and values *error* and *timeout* to distinguish between cases
+when errors happen with the upstream's peer connection from those when backends
+send statuses *502* or *504* (values *502* and *504* refer to the both cases).
+Directive *order* currently accepts only one value *start_random* which means
+that starting upstreams in normal and backup cycles after worker fired up will
+be chosen randomly. Starting upstreams in further requests will be cycled in
+round-robin manner. Additionally, a modifier *per_request* is also accepted in
+the *order* directive: it turns off the global per-worker round-robin cycle.
+The combination of *per_request* and *start_random* makes the starting upstream
+in every new request be chosen randomly.
 
 Such a failover between *failure* statuses can be reached during a single
 request by feeding a special variable that starts with *upstrand_* to the
