@@ -283,8 +283,7 @@ ngx_http_upstrand_init(ngx_conf_t *cf)
 
 
 /* FIXME: simplified version of ngx_http_upstream_intercept_errors(),
- * mostly works but may have bugs; it is also alerted about already sent
- * headers but sent responses look fine */
+ * works fine but may have bugs regarding the simplified aspects */
 static ngx_int_t
 ngx_http_upstrand_intercept_errors(ngx_http_request_t *r, ngx_int_t status)
 {
@@ -301,11 +300,8 @@ ngx_http_upstrand_intercept_errors(ngx_http_request_t *r, ngx_int_t status)
 
     err_page = clcf->error_pages->elts;
     for (i = 0; i < clcf->error_pages->nelts; i++) {
-
         if (err_page[i].status == status) {
-
-            return ngx_http_filter_finalize_request(r, NULL,
-                        ngx_http_special_response_handler(r, status));
+            return ngx_http_filter_finalize_request(r, NULL, status);
         }
     }
 
