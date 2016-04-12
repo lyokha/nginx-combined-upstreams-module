@@ -288,7 +288,6 @@ static ngx_int_t
 ngx_http_upstrand_intercept_errors(ngx_http_request_t *r, ngx_int_t status)
 {
     ngx_uint_t                 i;
-    ngx_table_elt_t           *h;
     ngx_http_err_page_t       *err_page;
     ngx_http_core_loc_conf_t  *clcf;
 
