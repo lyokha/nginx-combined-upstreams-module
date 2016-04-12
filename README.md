@@ -131,6 +131,7 @@ upstrand us1 {
     order start_random;
     next_upstream_statuses 204 5xx;
     next_upstream_timeout 60s;
+    #intercept_errors;
 }
 ```
 
@@ -151,6 +152,9 @@ or *504* (values *502* and *504* refer to the both cases).
 Directive *next_upstream_timeout* limits the overall duration time the upstrand
 cycles through all of its upstreams. If the time exceeds while the upstrand is
 ready to pass to a next upstream, the last upstream cycle result is returned.
+
+Directive *intercept_errors* (commented out in the example) allows intercepting
+the final response by the *error_page*.
 
 Directive *order* currently accepts only one value *start_random* which means
 that starting upstreams in normal and backup cycles after worker fired up will

@@ -47,6 +47,7 @@ typedef struct {
     ngx_int_t                                b_cur;
     ngx_http_upstrand_order_e                order;
     ngx_uint_t                               order_per_request:1;
+    ngx_uint_t                               intercept_errors:1;
     ngx_uint_t                               debug_intermediate_stages:1;
 } ngx_http_upstrand_conf_t;
 
@@ -107,6 +108,7 @@ typedef struct {
     ngx_http_upstrand_request_common_ctx_t   common;
     ngx_uint_t                               backup_cycle:1;
     ngx_uint_t                               all_blacklisted:1;
+    ngx_uint_t                               intercept_errors:1;
     ngx_uint_t                               debug_intermediate_stages:1;
 } ngx_http_upstrand_request_ctx_t;
 
@@ -134,6 +136,8 @@ static void *ngx_http_upstrand_create_loc_conf(ngx_conf_t *cf);
 static char *ngx_http_upstrand_merge_loc_conf(ngx_conf_t *cf,
     void *parent, void *child);
 static ngx_int_t ngx_http_combined_upstreams_add_vars(ngx_conf_t *cf);
+static ngx_int_t ngx_http_upstrand_intercept_errors(ngx_http_request_t *r,
+    ngx_int_t status);
 static ngx_int_t ngx_http_upstrand_response_header_filter(
     ngx_http_request_t *r);
 static ngx_int_t ngx_http_upstrand_response_body_filter(ngx_http_request_t *r,
@@ -278,6 +282,38 @@ ngx_http_upstrand_init(ngx_conf_t *cf)
 }
 
 
+/* FIXME: simplified version of ngx_http_upstream_intercept_errors(),
+ * mostly works but may have bugs; it is also alerted about already sent
+ * headers but sent responses look fine */
+static ngx_int_t
+ngx_http_upstrand_intercept_errors(ngx_http_request_t *r, ngx_int_t status)
+{
+    ngx_uint_t                 i;
+    ngx_table_elt_t           *h;
+    ngx_http_err_page_t       *err_page;
+    ngx_http_core_loc_conf_t  *clcf;
+
+    clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
+
+    if (clcf->error_pages == NULL) {
+        return NGX_DECLINED;
+    }
+
+    err_page = clcf->error_pages->elts;
+    for (i = 0; i < clcf->error_pages->nelts; i++) {
+
+        if (err_page[i].status == status) {
+
+            return ngx_http_filter_finalize_request(r, NULL,
+                        ngx_http_special_response_handler(r, status));
+        }
+    }
+
+    return NGX_DECLINED;
+}
+
+
+
 static ngx_int_t
 ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
 {
@@ -398,6 +434,12 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
         }
     } else {
         common->last = 1;
+    }
+
+    if (common->last && ctx->intercept_errors) {
+        if (ngx_http_upstrand_intercept_errors(r->main, status) == NGX_OK) {
+            return NGX_OK;
+        }
     }
 
     if (r != r->main && common->last) {
@@ -588,6 +630,7 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
         }
         ctx->cur = ctx->start_cur;
         ctx->b_cur = ctx->start_bcur;
+        ctx->intercept_errors = upstrand->intercept_errors;
         ctx->debug_intermediate_stages = upstrand->debug_intermediate_stages;
 
         if (u_nelts > 0) {
@@ -1110,6 +1153,12 @@ ngx_http_upstrand(ngx_conf_t *cf, ngx_command_t *dummy, void *conf)
     ctx = cf->ctx;
 
     if (cf->args->nelts == 1) {
+        if (value[0].len == 16 &&
+            ngx_strncmp(value[0].data, "intercept_errors", 16) == 0)
+        {
+            ctx->upstrand->intercept_errors = 1;
+            return NGX_CONF_OK;
+        }
         if (value[0].len == 25 &&
             ngx_strncmp(value[0].data, "debug_intermediate_stages", 25) == 0)
         {
