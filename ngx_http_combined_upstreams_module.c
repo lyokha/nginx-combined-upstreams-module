@@ -283,7 +283,7 @@ ngx_http_upstrand_init(ngx_conf_t *cf)
 
 
 /* FIXME: simplified version of ngx_http_upstream_intercept_errors(),
- * works fine but may have bugs regarding the simplified aspects */
+ * works fine but may have bugs related to the simplified aspects */
 static ngx_int_t
 ngx_http_upstrand_intercept_errors(ngx_http_request_t *r, ngx_int_t status)
 {

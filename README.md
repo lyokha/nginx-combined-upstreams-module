@@ -116,11 +116,11 @@ proxied to *server2* until it goes down.
 Block upstrand
 --------------
 
-Is aimed to configure a super-layer of upstreams which do not lose their
-identities. Accepts directives *upstream*, *order* and *next_upstream_statuses*.
-Upstreams with names starting with tilde (*~*) match a regular expression. Only
-upstreams that already have been declared before the upstrand block definition
-will be regarded as candidates.
+Is aimed to configure a super-layer of upstreams that do not lose their
+identities. Accepts a number of directives including *upstream*, *order*,
+*next_upstream_statuses* and other. Upstreams with names starting with tilde
+(*~*) match a regular expression. Only upstreams that already have been declared
+before the upstrand block definition are regarded as candidates.
 
 ### An example:
 
@@ -143,6 +143,9 @@ responded with statuses listed in directive *next_upstream_statuses* or were
 *blacklist_interval* and responded with a status listed in the
 *next_upstream_statuses*. Blacklisting state is not shared between nginx worker
 processes.
+
+The next three upstrand directives are akin to those from the nginx proxy
+module.
 
 Directive *next_upstream_statuses* accepts *4xx* and *5xx* statuses notation and
 values *error* and *timeout* to distinguish between cases when errors happen
