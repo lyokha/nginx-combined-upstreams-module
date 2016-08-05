@@ -308,7 +308,6 @@ ngx_http_upstrand_intercept_errors(ngx_http_request_t *r, ngx_int_t status)
 }
 
 
-
 static ngx_int_t
 ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
 {
@@ -1003,10 +1002,10 @@ ngx_http_upstrand_create_loc_conf(ngx_conf_t *cf)
 static char *
 ngx_http_upstrand_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
 {
-    ngx_http_upstrand_loc_conf_t *prev = parent;
-    ngx_http_upstrand_loc_conf_t *conf = child;
+    ngx_http_upstrand_loc_conf_t  *prev = parent;
+    ngx_http_upstrand_loc_conf_t  *conf = child;
 
-    ngx_uint_t                    i;
+    ngx_uint_t                     i;
 
     for (i = 0; i < prev->dyn_upstrands.nelts; i++) {
         ngx_http_cu_varlist_elem_t  *elem;
