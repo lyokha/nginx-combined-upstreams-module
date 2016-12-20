@@ -48,6 +48,7 @@ typedef struct {
     ngx_http_upstrand_order_e                order;
     ngx_uint_t                               order_per_request:1;
     ngx_uint_t                               intercept_errors:1;
+    ngx_uint_t                               allow_non_idempotent:1;
     ngx_uint_t                               debug_intermediate_stages:1;
 } ngx_http_upstrand_conf_t;
 
@@ -108,8 +109,6 @@ typedef struct {
     ngx_http_upstrand_request_common_ctx_t   common;
     ngx_uint_t                               backup_cycle:1;
     ngx_uint_t                               all_blacklisted:1;
-    ngx_uint_t                               intercept_errors:1;
-    ngx_uint_t                               debug_intermediate_stages:1;
 } ngx_http_upstrand_request_ctx_t;
 
 
@@ -399,38 +398,48 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
             }
         }
 
-        if (u && ctx->start_time == 0) {
-            ctx->start_time = u->peer.start_time;
-        }
+        if (r->method & (NGX_HTTP_POST|NGX_HTTP_LOCK|NGX_HTTP_PATCH)
+            && !ctx->upstrand->allow_non_idempotent && u && u->peer.connection)
+        {
 
-        if (!common->last) {
-            ngx_http_request_t  *sr;
+            common->last = 1;
+        } else {
 
-            if (ctx->upstrand->next_upstream_timeout
-                && ngx_current_msec - ctx->start_time
-                    >= ctx->upstrand->next_upstream_timeout)
-            {
-                common->last = 1;
+            if (u && ctx->start_time == 0) {
+                ctx->start_time = u->peer.start_time;
+            }
 
-            } else {
-                if (ngx_http_subrequest(r, &r->main->uri, &r->main->args, &sr,
-                                        NULL, 0) != NGX_OK)
+            if (!common->last) {
+                ngx_http_request_t  *sr;
+
+                if (ctx->upstrand->next_upstream_timeout
+                    && ngx_current_msec - ctx->start_time
+                        >= ctx->upstrand->next_upstream_timeout)
                 {
-                    return NGX_ERROR;
+
+                    common->last = 1;
+                } else {
+
+                    if (ngx_http_subrequest(r, &r->main->uri, &r->main->args,
+                                            &sr, NULL, 0) != NGX_OK)
+                    {
+                        return NGX_ERROR;
+                    }
+
+                    /* subrequest must use method of the original request */
+                    sr->method = r->method;
+                    sr->method_name = r->method_name;
+
+                    return NGX_OK;
                 }
-
-                /* subrequest must use method of the original request */
-                sr->method = r->method;
-                sr->method_name = r->method_name;
-
-                return NGX_OK;
             }
         }
+
     } else {
         common->last = 1;
     }
 
-    if (common->last && ctx->intercept_errors) {
+    if (common->last && ctx->upstrand->intercept_errors) {
         if (ngx_http_upstrand_intercept_errors(r->main, status) == NGX_OK) {
             return NGX_OK;
         }
@@ -473,15 +482,15 @@ ngx_http_upstrand_response_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
     if (!common->last) {
         /* if upstream buffering is off then its out_bufs must be updated
          * right here! (at least in nginx 1.8.0) */
-        if (!ctx->debug_intermediate_stages && u && !u->buffering)
+        if (!ctx->upstrand->debug_intermediate_stages && u && !u->buffering)
         {
             u->out_bufs = NULL;
         }
         return ngx_http_next_body_filter(r,
-                                ctx->debug_intermediate_stages ? in : NULL);
+                        ctx->upstrand->debug_intermediate_stages ? in : NULL);
     }
 
-    if (!ctx->debug_intermediate_stages && in != NULL) {
+    if (!ctx->upstrand->debug_intermediate_stages && in != NULL) {
         ngx_chain_t  *cl = in;
 
         while (cl->next) {
@@ -624,8 +633,6 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
         }
         ctx->cur = ctx->start_cur;
         ctx->b_cur = ctx->start_bcur;
-        ctx->intercept_errors = upstrand->intercept_errors;
-        ctx->debug_intermediate_stages = upstrand->debug_intermediate_stages;
 
         if (u_nelts > 0) {
             if (!upstrand->order_per_request) {
@@ -1151,6 +1158,12 @@ ngx_http_upstrand(ngx_conf_t *cf, ngx_command_t *dummy, void *conf)
             ngx_strncmp(value[0].data, "intercept_errors", 16) == 0)
         {
             ctx->upstrand->intercept_errors = 1;
+            return NGX_CONF_OK;
+        }
+        if (value[0].len == 20 &&
+            ngx_strncmp(value[0].data, "allow_non_idempotent", 20) == 0)
+        {
+            ctx->upstrand->allow_non_idempotent = 1;
             return NGX_CONF_OK;
         }
         if (value[0].len == 25 &&

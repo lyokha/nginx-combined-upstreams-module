@@ -131,6 +131,7 @@ upstrand us1 {
     order start_random;
     next_upstream_statuses 204 5xx;
     next_upstream_timeout 60s;
+    allow_non_idempotent;
     #intercept_errors;
 }
 ```
@@ -144,8 +145,7 @@ responded with statuses listed in directive *next_upstream_statuses* or were
 *next_upstream_statuses*. Blacklisting state is not shared between nginx worker
 processes.
 
-The next three upstrand directives are akin to those from the nginx proxy
-module.
+The next four upstrand directives are akin to those from the nginx proxy module.
 
 Directive *next_upstream_statuses* accepts *4xx* and *5xx* statuses notation and
 values *error* and *timeout* to distinguish between cases when errors happen
@@ -155,6 +155,12 @@ or *504* (values *502* and *504* refer to the both cases).
 Directive *next_upstream_timeout* limits the overall duration time the upstrand
 cycles through all of its upstreams. If the time exceeds while the upstrand is
 ready to pass to a next upstream, the last upstream cycle result is returned.
+
+Directive *allow_non_idempotent* allows further processing of *non-idempotent*
+requests when they were responded by a server from an upstream but failed
+according to directive *next_upstream_statuses*. Requests are considered to be
+non-idempotent when their methods are *POST*, *LOCK* or *PATCH* as in the common
+nginx sense.
 
 Directive *intercept_errors* (commented out in the example) allows intercepting
 the final response by the *error_page*.
