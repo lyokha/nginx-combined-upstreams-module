@@ -399,7 +399,8 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
         }
 
         if (r->method & (NGX_HTTP_POST|NGX_HTTP_LOCK|NGX_HTTP_PATCH)
-            && !ctx->upstrand->allow_non_idempotent && u && u->peer.connection)
+            && !ctx->upstrand->allow_non_idempotent
+            && u && u->peer.connection != NULL)
         {
 
             common->last = 1;
@@ -600,12 +601,25 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
     u_nelts = upstrand->upstreams.nelts;
     bu_nelts = upstrand->b_upstreams.nelts;
 
-    if (ctx != NULL
-        && (r == ctx->r
+    if (ctx != NULL) {
+        if (ctx->upstrand->name.len != upstrand->name.len
+            || ngx_strncmp(ctx->upstrand->name.data, upstrand->name.data,
+                           upstrand->name.len) != 0)
+        {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                          "accessing multiple upstrand variables in a single "
+                          "request is prohibited (original upstrand is \"%V\", "
+                          "new upstrand is \"%V\")",
+                          &ctx->upstrand->name, &upstrand->name);
+            return NGX_ERROR;
+        }
+
+        if (r == ctx->r
             || ngx_http_get_module_ctx(r, ngx_http_combined_upstreams_module)
-                != NULL))
-    {
-        goto was_accessed;
+                != NULL)
+        {
+            goto was_accessed;
+        }
     }
 
     if (ctx == NULL) {
