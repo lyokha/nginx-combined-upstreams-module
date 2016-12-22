@@ -48,7 +48,7 @@ typedef struct {
     ngx_http_upstrand_order_e                order;
     ngx_uint_t                               order_per_request:1;
     ngx_uint_t                               intercept_errors:1;
-    ngx_uint_t                               allow_non_idempotent:1;
+    ngx_uint_t                               retry_non_idempotent:1;
     ngx_uint_t                               debug_intermediate_stages:1;
 } ngx_http_upstrand_conf_t;
 
@@ -399,13 +399,12 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
         }
 
         if (r->method & (NGX_HTTP_POST|NGX_HTTP_LOCK|NGX_HTTP_PATCH)
-            && !ctx->upstrand->allow_non_idempotent
+            && !ctx->upstrand->retry_non_idempotent
             && u && u->peer.connection != NULL)
         {
-
             common->last = 1;
-        } else {
 
+        } else {
             if (u && ctx->start_time == 0) {
                 ctx->start_time = u->peer.start_time;
             }
@@ -1174,12 +1173,6 @@ ngx_http_upstrand(ngx_conf_t *cf, ngx_command_t *dummy, void *conf)
             ctx->upstrand->intercept_errors = 1;
             return NGX_CONF_OK;
         }
-        if (value[0].len == 20 &&
-            ngx_strncmp(value[0].data, "allow_non_idempotent", 20) == 0)
-        {
-            ctx->upstrand->allow_non_idempotent = 1;
-            return NGX_CONF_OK;
-        }
         if (value[0].len == 25 &&
             ngx_strncmp(value[0].data, "debug_intermediate_stages", 25) == 0)
         {
@@ -1323,6 +1316,13 @@ ngx_http_upstrand(ngx_conf_t *cf, ngx_command_t *dummy, void *conf)
 
         for (i = 1; i < cf->args->nelts; i++) {
             ngx_uint_t  invalid_status = 0;
+
+            if (value[i].len == 14 &&
+                ngx_strncmp(value[i].data, "non_idempotent", 14) == 0)
+            {
+                ctx->upstrand->retry_non_idempotent = 1;
+                continue;
+            }
 
             status = ngx_array_push(&ctx->upstrand->next_upstream_statuses);
             if (status == NULL) {
