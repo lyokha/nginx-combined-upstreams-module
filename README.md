@@ -57,11 +57,21 @@ upstream  uhost {
 
 ### Why numbers, not names?
 
-In the example above singlet upstreams will have names like *uhost_single_01*
+In the example above singlet upstreams will have names like *uhost_single_01*,
 but names that contain server names like *uhost_single_s1* would look better and
 more convenient. Why not use them instead ordering numbers? Unfortunately nginx
 does not remember server names after a server has been added into an upstream,
 therefore we cannot simply fetch them.
+
+*Update.* There is a good news! Since version *1.7.2* nginx remembers server
+names in upstream data and now we can use them when referring to a special
+keyword *byname*. For example
+
+```nginx
+    combine_server_singlets  byname;
+    # or
+    combine_server_singlets  _single_ byname;
+```
 
 ### Where this can be useful
 

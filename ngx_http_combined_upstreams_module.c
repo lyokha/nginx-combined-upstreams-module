@@ -1670,7 +1670,12 @@ ngx_http_combine_server_singlets(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     ngx_uint_t                      i, j;
     ngx_http_upstream_srv_conf_t   *uscf;
     ngx_str_t                      *value;
-    const char                     *suf = "", *fmt = "%s%d";
+    ngx_str_t                       suf = ngx_null_string, oldsuf, newsuf;
+    u_char                          buf[128];
+    u_char                         *fbuf;
+    const char                     *fmt = "%V%d";
+    ngx_uint_t                      flen;
+    ngx_uint_t                      byname = 0;
 
     uscf = ngx_http_conf_get_module_srv_conf(cf, ngx_http_upstream_module);
     if (uscf->servers == NULL) {
@@ -1682,35 +1687,100 @@ ngx_http_combine_server_singlets(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     value = cf->args->elts;
 
     if (cf->args->nelts > 1) {
-        unsigned char  *buf = ngx_pnalloc(cf->pool, value[1].len + 1);
+        suf = value[1];
 
-        ngx_snprintf(buf, value[1].len, "%V", &value[1]);
-        suf = (const char *) buf;
+#if nginx_version >= 1007002
+        if (value[1].len == 6
+            && ngx_strncmp(value[1].data, "byname", 6) == 0)
+        {
+            fmt = "%V";
+            byname = 1;
+        }
+#endif
 
         if (cf->args->nelts > 2) {
-            if (ngx_atoi(value[2].data, value[2].len) == NGX_ERROR) {
+            if (byname > 0) {
                 ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                                   "second parameter \"%V\" must be an integer "
-                                   "value", &value[2]);
+                                   "second parameter is not permitted when "
+                                   "using \"byname\" value");
                 return NGX_CONF_ERROR;
             }
 
-            buf = ngx_pnalloc(cf->pool, value[2].len + 6);
-            ngx_snprintf(buf, sizeof(buf), "%s%V%s", "%s%0", &value[2], "d");
-            fmt = (const char *) buf;
+#if nginx_version >= 1007002
+            if (value[2].len == 6
+                && ngx_strncmp(value[2].data, "byname", 6) == 0)
+            {
+                fmt = "%V%V";
+                byname = 2;
+            } else
+#endif
+            {
+                if (ngx_atoi(value[2].data, value[2].len) == NGX_ERROR) {
+                    ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                                       "second parameter \"%V\" must be an "
+                                       "integer value", &value[2]);
+                    return NGX_CONF_ERROR;
+                }
+
+                flen = value[2].len + 6;
+                fbuf = ngx_pnalloc(cf->pool, flen);
+                if (fbuf == NULL) {
+                    return NGX_CONF_ERROR;
+                }
+                ngx_snprintf(fbuf, flen, "%s%V%s", "%V%0", &value[2], "d");
+                fmt = (const char *) fbuf;
+            }
         }
     }
+
+    oldsuf = suf;
 
     for (i = 0; i < uscf->servers->nelts; i++) {
         ngx_url_t                      u;
         ngx_http_upstream_srv_conf_t  *uscfn;
         ngx_http_upstream_server_t    *usn;
-        unsigned char                  buf[128];
-        unsigned char                 *end;
+        u_char                        *end;
+
+#if nginx_version >= 1007002
+        if (byname > 0) {
+            u_char      *start;
+            ngx_uint_t   start_idx;
+
+            suf = ((ngx_http_upstream_server_t *) uscf->servers->elts)[i].name;
+            start = ngx_strlchr(suf.data, suf.data + suf.len, ':');
+            if (start != NULL) {
+                start_idx = start - suf.data;
+                newsuf.len = suf.len;
+                newsuf.data = ngx_pnalloc(cf->pool, suf.len);
+                if (newsuf.data == NULL) {
+                    return NGX_CONF_ERROR;
+                }
+                ngx_memcpy(newsuf.data, suf.data, suf.len);
+                suf = newsuf;
+                suf.data[start_idx] = '_';
+                for (j = start_idx + 1; j < suf.len; j++) {
+                    if (suf.data[j] == ':') {
+                        suf.data[j] = '_';
+                    }
+                }
+            }
+
+            switch (byname) {
+            case 1:
+                end = ngx_snprintf(buf, sizeof(buf), fmt, &suf);
+                break;
+            case 2:
+            default:
+                end = ngx_snprintf(buf, sizeof(buf), fmt, &oldsuf, &suf);
+                break;
+            }
+        } else
+#endif
+        {
+            end = ngx_snprintf(buf, sizeof(buf), fmt, &suf, i + 1);
+        }
 
         ngx_memzero(&u, sizeof(ngx_url_t));
-        end = ngx_snprintf(buf, sizeof(buf), fmt, suf, i + 1);
-
         u.host.len = uscf->host.len + (end - buf);
         u.host.data = ngx_pnalloc(cf->pool, u.host.len);
         if (u.host.data == NULL)
@@ -1745,6 +1815,9 @@ ngx_http_combine_server_singlets(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         for (j = 0; j < uscf->servers->nelts; ++j) {
             usn[j].backup = i == j ? 0 : 1;
         }
+
+        /*ngx_conf_log_error(NGX_LOG_ERR, cf, 0,*/
+                           /*"created combined upstream \"%V\"", &u.host);*/
     }
 
     return NGX_CONF_OK;
