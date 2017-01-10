@@ -73,6 +73,8 @@ keyword *byname*. For example
     combine_server_singlets  _single_ byname;
 ```
 
+All colons (*:*) in the server names are replaced with underscores (*_*).
+
 ### Where this can be useful
 
 Hmm, I do not know. Anyway a singlet upstream is a prominent category because it
