@@ -448,6 +448,7 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
     if (r != r->main && common->last) {
         /* copy HTTP headers to main request */
         r->main->headers_out = r->headers_out;
+        /* FIXME: must other fields like upstream_states be copied too? */
 
         return ngx_http_next_header_filter(r->main);
     }
