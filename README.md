@@ -130,7 +130,7 @@ Block upstrand
 
 Is aimed to configure a super-layer of upstreams that do not lose their
 identities. Accepts a number of directives including *upstream*, *order*,
-*next_upstream_statuses* and other. Upstreams with names starting with tilde
+*next_upstream_statuses* and others. Upstreams with names starting with tilde
 (*~*) match a regular expression. Only upstreams that already have been declared
 before the upstrand block definition are regarded as candidates.
 
@@ -210,8 +210,8 @@ upstreams visited during request.
 
 The *upstrand* looks very similar to a simple combined upstream but it also has
 a crucial difference: the upstreams inside of an upstrand do not get flattened
-and keep holding their identities. It gives a possibility to configure a
-*failover* status for a bunch of servers associated with a single upstream
+and keep holding their identities. This gives a possibility to configure a
+*failover* status for a group of servers associated with a single upstream
 without need to check them all by turn. In the above example upstrand *us1* may
 hold a list of upstreams like *u01*, *u02* etc. Imagine that upstream *u01*
 holds 10 servers inside and represents a part of a geographically distributed
@@ -220,7 +220,13 @@ have an application that polls the parts for doing some tasks. Let backends send
 HTTP status *204* if they do not have new tasks. In a flat combined upstream all
 10 servers may be polled before the application will finally receive a new task
 from another upstream. The upstrand *us1* allows skipping to the next upstream
-after checking the first server in an upstream that does not have tasks.
+after checking the first server in an upstream that does not have tasks. This
+machinery is apparently suitable for *upstream broadcasting*, when messages are
+being sent to all upstreams in an upstrand.
+
+The examples above show that an upstrand can be regarded as a *2-dimensional*
+upstream that comprises a number of clusters representing natural upstreams and
+allows short-cycling over them.
 
 Directive dynamic_upstrand
 --------------------------
