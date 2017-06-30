@@ -221,7 +221,7 @@ HTTP status *204* if they do not have new tasks. In a flat combined upstream all
 10 servers may be polled before the application will finally receive a new task
 from another upstream. The upstrand *us1* allows skipping to the next upstream
 after checking the first server in an upstream that does not have tasks. This
-machinery is apparently suitable for *upstream broadcasting*, when messages are
+machinery is apparently suitable for *upstreams broadcasting*, when messages are
 being sent to all upstreams in an upstrand.
 
 The examples above show that an upstrand can be regarded as a *2-dimensional*
