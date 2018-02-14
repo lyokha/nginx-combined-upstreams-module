@@ -756,9 +756,11 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
 
     if (force_last ||
         (bu_nelts == 0 &&
-         (ctx->cur + 1) % u_nelts == (ngx_uint_t) ctx->start_cur) ||
+         (u_nelts == 0
+          || (ctx->cur + 1) % u_nelts == (ngx_uint_t) ctx->start_cur)) ||
         (ctx->backup_cycle &&
-         (ctx->b_cur + 1) % bu_nelts == (ngx_uint_t) ctx->start_bcur))
+         (bu_nelts == 0
+          || (ctx->b_cur + 1) % bu_nelts == (ngx_uint_t) ctx->start_bcur)))
     {
         common->last = 1;
     }
