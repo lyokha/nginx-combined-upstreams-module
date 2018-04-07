@@ -587,7 +587,7 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
     ngx_http_upstrand_request_common_ctx_t   *common;
     ngx_http_upstrand_upstream_conf_t        *u_elts, *bu_elts;
     ngx_uint_t                                u_nelts, bu_nelts;
-    ngx_http_upstream_main_conf_t            *usmf;
+    ngx_http_upstream_main_conf_t            *umcf;
     ngx_http_upstream_srv_conf_t            **uscfp;
     time_t                                    now;
     ngx_int_t                                 start_cur, start_bcur;
@@ -767,8 +767,8 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
 
 was_accessed:
 
-    usmf = ngx_http_get_module_main_conf(r, ngx_http_upstream_module);
-    uscfp = usmf->upstreams.elts;
+    umcf = ngx_http_get_module_main_conf(r, ngx_http_upstream_module);
+    uscfp = umcf->upstreams.elts;
 
     if (ctx->backup_cycle && bu_nelts > 0) {
         ctx->cur_upstream = uscfp[bu_elts[ctx->b_cur].index]->host;
@@ -1478,7 +1478,7 @@ ngx_http_upstrand_add_upstream(ngx_conf_t *cf, ngx_array_t *upstreams,
     ngx_uint_t                           i;
     ngx_uint_t                           found_idx;
     ngx_http_upstrand_upstream_conf_t   *u;
-    ngx_http_upstream_main_conf_t       *usmf;
+    ngx_http_upstream_main_conf_t       *umcf;
     ngx_http_upstream_srv_conf_t       **uscfp;
 
 #if (NGX_PCRE)
@@ -1491,12 +1491,12 @@ ngx_http_upstrand_add_upstream(ngx_conf_t *cf, ngx_array_t *upstreams,
     }
 #endif
 
-    usmf = ngx_http_conf_get_module_main_conf(cf, ngx_http_upstream_module);
-    uscfp = usmf->upstreams.elts;
+    umcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_upstream_module);
+    uscfp = umcf->upstreams.elts;
 
     found_idx = NGX_ERROR;
 
-    for (i = 0; i < usmf->upstreams.nelts; i++) {
+    for (i = 0; i < umcf->upstreams.nelts; i++) {
         if (uscfp[i]->host.len == name->len &&
             ngx_strncasecmp(uscfp[i]->host.data, name->data, name->len) == 0) {
             found_idx = i;
@@ -1538,7 +1538,7 @@ ngx_http_upstrand_regex_add_upstream(ngx_conf_t *cf, ngx_array_t *upstreams,
 {
     ngx_uint_t                           i, j;
     ngx_http_upstrand_upstream_conf_t   *u;
-    ngx_http_upstream_main_conf_t       *usmf;
+    ngx_http_upstream_main_conf_t       *umcf;
     ngx_http_upstream_srv_conf_t       **uscfp;
     ngx_regex_compile_t                  rc;
     u_char                               errstr[NGX_MAX_CONF_ERRSTR];
@@ -1555,10 +1555,10 @@ ngx_http_upstrand_regex_add_upstream(ngx_conf_t *cf, ngx_array_t *upstreams,
         return NGX_CONF_ERROR;
     }
     
-    usmf = ngx_http_conf_get_module_main_conf(cf, ngx_http_upstream_module);
-    uscfp = usmf->upstreams.elts;
+    umcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_upstream_module);
+    uscfp = umcf->upstreams.elts;
 
-    for (i = 0; i < usmf->upstreams.nelts; i++) {
+    for (i = 0; i < umcf->upstreams.nelts; i++) {
         ngx_uint_t  is_registered = 0;
 
         if (ngx_regex_exec(re->regex, &uscfp[i]->host, NULL, 0)
@@ -1599,15 +1599,15 @@ static char *
 ngx_http_add_upstream(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
     ngx_uint_t                      i, j;
-    ngx_http_upstream_main_conf_t  *usmf;
+    ngx_http_upstream_main_conf_t  *umcf;
     ngx_http_upstream_srv_conf_t   *uscf, **uscfp;
     ngx_http_upstream_server_t     *us;
     ngx_str_t                      *value;
     ngx_uint_t                      backup = 0;
 
-    usmf = ngx_http_conf_get_module_main_conf(cf, ngx_http_upstream_module);
+    umcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_upstream_module);
     uscf = ngx_http_conf_get_module_srv_conf(cf, ngx_http_upstream_module);
-    uscfp = usmf->upstreams.elts;
+    uscfp = umcf->upstreams.elts;
     value = cf->args->elts;
 
     if (cf->args->nelts > 3) {
@@ -1633,7 +1633,7 @@ ngx_http_add_upstream(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         }
     }
 
-    for (i = 0; i < usmf->upstreams.nelts; i++) {
+    for (i = 0; i < umcf->upstreams.nelts; i++) {
         if (uscfp[i]->host.len == value[1].len &&
             ngx_strncasecmp(uscfp[i]->host.data,
                             value[1].data, value[1].len) == 0) {
