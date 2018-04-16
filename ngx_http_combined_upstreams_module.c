@@ -1032,7 +1032,7 @@ ngx_http_upstrand_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
 
     for (i = 0; i < prev->dyn_upstrands.nelts; i++) {
         ngx_http_cu_varlist_elem_t  *elem;
-        
+
         elem = ngx_array_push(&conf->dyn_upstrands);
         if (elem == NULL) {
             return NGX_CONF_ERROR;
@@ -1554,7 +1554,7 @@ ngx_http_upstrand_regex_add_upstream(ngx_conf_t *cf, ngx_array_t *upstreams,
     if (re == NULL) {
         return NGX_CONF_ERROR;
     }
-    
+
     umcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_upstream_module);
     uscfp = umcf->upstreams.elts;
 
