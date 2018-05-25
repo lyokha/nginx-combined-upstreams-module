@@ -178,7 +178,7 @@ static ngx_http_output_body_filter_pt    ngx_http_next_body_filter;
 static ngx_command_t  ngx_http_combined_upstreams_commands[] = {
 
     { ngx_string("add_upstream"),
-      NGX_HTTP_UPS_CONF|NGX_CONF_1MORE,
+      NGX_HTTP_UPS_CONF|NGX_CONF_TAKE12,
       ngx_http_add_upstream,
       0,
       0,
@@ -1609,12 +1609,6 @@ ngx_http_add_upstream(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     uscf = ngx_http_conf_get_module_srv_conf(cf, ngx_http_upstream_module);
     uscfp = umcf->upstreams.elts;
     value = cf->args->elts;
-
-    if (cf->args->nelts > 3) {
-        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                           "number of parameters must be 1 or 2");
-        return NGX_CONF_ERROR;
-    }
 
     if (value[1].len == uscf->host.len &&
         ngx_strncasecmp(value[1].data, uscf->host.data, value[1].len) == 0) {
