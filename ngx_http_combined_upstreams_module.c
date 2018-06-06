@@ -27,6 +27,11 @@ typedef struct {
 
 
 typedef struct {
+    ngx_http_upstream_init_pt                original_init_upstream;
+} ngx_http_combined_upstreams_srv_conf_t;
+
+
+typedef struct {
     ngx_array_t                              dyn_upstrands;
 } ngx_http_upstrand_loc_conf_t;
 
@@ -131,6 +136,7 @@ typedef struct {
 
 static ngx_int_t ngx_http_upstrand_init(ngx_conf_t *cf);
 static void *ngx_http_upstrand_create_main_conf(ngx_conf_t *cf);
+static void *ngx_http_combined_upstreams_create_srv_conf(ngx_conf_t *cf);
 static void *ngx_http_upstrand_create_loc_conf(ngx_conf_t *cf);
 static char *ngx_http_upstrand_merge_loc_conf(ngx_conf_t *cf,
     void *parent, void *child);
@@ -169,6 +175,10 @@ static char *ngx_http_add_upstream(ngx_conf_t *cf,
     ngx_command_t *cmd, void *conf);
 static char *ngx_http_combine_server_singlets(ngx_conf_t *cf,
     ngx_command_t *cmd, void *conf);
+static char *ngx_http_extend_single_peers(ngx_conf_t *cf,
+    ngx_command_t *cmd, void *conf);
+static ngx_int_t ngx_http_upstream_init_extend_single_peers(ngx_conf_t *cf,
+    ngx_http_upstream_srv_conf_t *us);
 
 
 static ngx_http_output_header_filter_pt  ngx_http_next_header_filter;
@@ -199,6 +209,12 @@ static ngx_command_t  ngx_http_combined_upstreams_commands[] = {
       NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_2MORE,
       ngx_http_dynamic_upstrand,
       NGX_HTTP_LOC_CONF_OFFSET,
+      0,
+      NULL },
+    { ngx_string("extend_single_peers"),
+      NGX_HTTP_UPS_CONF|NGX_CONF_NOARGS,
+      ngx_http_extend_single_peers,
+      NGX_HTTP_SRV_CONF_OFFSET,
       0,
       NULL },
 
@@ -244,7 +260,8 @@ static ngx_http_module_t  ngx_http_combined_upstreams_module_ctx = {
     ngx_http_upstrand_create_main_conf,      /* create main configuration */
     NULL,                                    /* init main configuration */
 
-    NULL,                                    /* create server configuration */
+    ngx_http_combined_upstreams_create_srv_conf,
+                                             /* create server configuration */
     NULL,                                    /* merge server configuration */
 
     ngx_http_upstrand_create_loc_conf,       /* create location configuration */
@@ -999,6 +1016,18 @@ ngx_http_upstrand_create_main_conf(ngx_conf_t *cf)
     }
 
     return mcf;
+}
+
+
+static void *
+ngx_http_combined_upstreams_create_srv_conf(ngx_conf_t *cf)
+{
+    ngx_http_combined_upstreams_srv_conf_t  *scf;
+
+    scf = ngx_pcalloc(cf->pool,
+                      sizeof(ngx_http_combined_upstreams_srv_conf_t));
+
+    return scf;
 }
 
 
@@ -1818,5 +1847,80 @@ ngx_http_combine_server_singlets(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     }
 
     return NGX_CONF_OK;
+}
+
+
+static char *
+ngx_http_extend_single_peers(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+{
+    ngx_http_upstream_srv_conf_t            *uscf;
+    ngx_http_combined_upstreams_srv_conf_t  *scf = conf;
+
+    uscf = ngx_http_conf_get_module_srv_conf(cf, ngx_http_upstream_module);
+
+    scf->original_init_upstream = uscf->peer.init_upstream
+                                  ? uscf->peer.init_upstream
+                                  : ngx_http_upstream_init_round_robin;
+
+    uscf->peer.init_upstream = ngx_http_upstream_init_extend_single_peers;
+
+    return NGX_CONF_OK;
+}
+
+
+static ngx_int_t
+ngx_http_upstream_init_extend_single_peers(ngx_conf_t *cf,
+    ngx_http_upstream_srv_conf_t *us)
+{
+    ngx_uint_t                               i, n = 0, m = 0;
+    ngx_http_combined_upstreams_srv_conf_t  *scf;
+    ngx_http_upstream_server_t              *server, *s;
+    ngx_addr_t                              *addr = NULL;
+
+    if (us->servers) {
+        server = us->servers->elts;
+        for (i = 0; i < us->servers->nelts; i++) {
+            if (server[i].backup) {
+                n += server[i].naddrs;
+            } else {
+                m += server[i].naddrs;
+            }
+        }
+
+        if (n == 1) {
+            s = ngx_array_push(us->servers);
+            addr = ngx_pcalloc(cf->pool, sizeof(ngx_addr_t));
+            if (s == NULL || addr == NULL) {
+                return NGX_ERROR;
+            }
+            ngx_memzero(s, sizeof(ngx_http_upstream_server_t));
+            s->addrs = addr;
+            s->naddrs = 1;
+            s->down = 1;
+        }
+        if (m == 1) {
+            s = ngx_array_push(us->servers);
+            if (addr == NULL) {
+                addr = ngx_pcalloc(cf->pool, sizeof(ngx_addr_t));
+            }
+            if (s == NULL || addr == NULL) {
+                return NGX_ERROR;
+            }
+            ngx_memzero(s, sizeof(ngx_http_upstream_server_t));
+            s->backup = 1;
+            s->addrs = addr;
+            s->naddrs = 1;
+            s->down = 1;
+        }
+    }
+
+    scf = ngx_http_conf_upstream_srv_conf(us,
+                                          ngx_http_combined_upstreams_module);
+
+    if (scf->original_init_upstream(cf, us) != NGX_OK) {
+        return NGX_ERROR;
+    }
+
+    return NGX_OK;
 }
 
