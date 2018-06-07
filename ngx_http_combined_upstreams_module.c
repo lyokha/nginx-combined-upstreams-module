@@ -1853,8 +1853,9 @@ ngx_http_combine_server_singlets(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 static char *
 ngx_http_extend_single_peers(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
-    ngx_http_upstream_srv_conf_t            *uscf;
     ngx_http_combined_upstreams_srv_conf_t  *scf = conf;
+
+    ngx_http_upstream_srv_conf_t            *uscf;
 
     uscf = ngx_http_conf_get_module_srv_conf(cf, ngx_http_upstream_module);
 
