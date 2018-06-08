@@ -28,6 +28,7 @@ typedef struct {
 
 typedef struct {
     ngx_http_upstream_init_pt                original_init_upstream;
+    ngx_uint_t                               extended_peers_enabled;
 } ngx_http_combined_upstreams_srv_conf_t;
 
 
@@ -1857,11 +1858,16 @@ ngx_http_extend_single_peers(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
     ngx_http_upstream_srv_conf_t            *uscf;
 
+    if (scf->extended_peers_enabled) {
+        return "is duplicate";
+    }
+
     uscf = ngx_http_conf_get_module_srv_conf(cf, ngx_http_upstream_module);
 
     scf->original_init_upstream = uscf->peer.init_upstream
                                   ? uscf->peer.init_upstream
                                   : ngx_http_upstream_init_round_robin;
+    scf->extended_peers_enabled = 1;
 
     uscf->peer.init_upstream = ngx_http_upstream_init_extend_single_peers;
 
