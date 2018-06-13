@@ -284,6 +284,40 @@ value of *arg_a* that points to a valid destination), otherwise (both *arg_b*
 and *arg_a* are not set or empty) the request will be sent to the upstrand
 *us2*.
 
+Directive extend_single_peers
+-----------------------------
+
+Peers in an upstream fail according to the rules listed in directive
+*proxy_next_upstream*. If an upstream has only one peer in its main or backup
+parts then it will never fail. This can be a serious problem when writing a
+custom algorithm of active health checks for upstream peers. Directive
+*extend_single_peers*, being declared in an upstream block, adds a fake peer
+marked as *down* in the main or the backup part of the upstream if the part
+originally contains only one peer. This makes nginx mark the original single
+peer as failed when it fails to pass the rules of the *proxy_next_upstream* just
+like in general case of multiple peers.
+
+### An example
+
+```nginx
+upstream  upstream1 {
+    server  s1;
+    extend_single_peers;
+}
+
+upstream  upstream2 {
+    server  s1;
+    server  s2;
+    server  s3 backup;
+    extend_single_peers;
+}
+```
+
+Notice that if a part (the main or the backup) of an upstream contains more than
+one peer (like the main part in *upstream2* from the example) then the directive
+has no effect: particularly, in the *upstream2* it only affects the backup part
+of the upstream.
+
 See also
 --------
 
