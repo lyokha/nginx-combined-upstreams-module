@@ -178,7 +178,7 @@ identities. Accepts a number of directives including *upstream*, *order*,
 (*~*) match a regular expression. Only upstreams that already have been declared
 before the upstrand block definition are regarded as candidates.
 
-### An example:
+### An example
 
 ```nginx
 upstrand us1 {
