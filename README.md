@@ -287,14 +287,14 @@ and *arg_a* are not set or empty) the request will be sent to the upstrand
 Directive extend_single_peers
 -----------------------------
 
-Peers in an upstream fail according to the rules listed in directive
+Peers in upstreams fail according to the rules listed in directive
 *proxy_next_upstream*. If an upstream has only one peer in its main or backup
-parts then it will never fail. This can be a serious problem when writing a
-custom algorithm of active health checks for upstream peers. Directive
+part then this peer will never fail. This can be a serious problem when writing
+a custom algorithm for active health checks of upstream peers. Directive
 *extend_single_peers*, being declared in an upstream block, adds a fake peer
 marked as *down* in the main or the backup part of the upstream if the part
 originally contains only one peer. This makes nginx mark the original single
-peer as failed when it fails to pass the rules of the *proxy_next_upstream* just
+peer as failed when it fails to pass the rules of *proxy_next_upstream* just
 like in general case of multiple peers.
 
 ### An example
