@@ -1,11 +1,21 @@
 Nginx Combined Upstreams module
 ===============================
 
-The module introduces two directives *add_upstream* and
-*combine_server_singlets* available inside upstream configuration blocks and a
-new configuration block *upstrand* for building super-layers of upstreams.
-Additionally a directive *dynamic_upstrand* is introduced for choosing upstrands
-in run-time.
+The module introduces three directives *add_upstream*,
+*combine_server_singlets*, and *extend_single_peers* available inside upstream
+configuration blocks, and a new configuration block *upstrand* for building
+super-layers of upstreams. Additionally, directive *dynamic_upstrand* is
+introduced for choosing upstrands in run-time.
+
+Table of contents
+-----------------
+
+- [Directive add_upstream](#directive-add-upstream)
+- [Directive combine_server_singlets](#directive-combine-server-singlets)
+- [Directive extend_single_peers](#directive-extend-single-peers)
+- [Block upstrand](#block-upstrand)
+- [Directive dynamic_upstrand](#directive-dynamic-upstrand)
+- [See also](#see-also)
 
 Directive add_upstream
 ----------------------
@@ -40,7 +50,7 @@ integer value which defines *zero-alignment* of the ordering number, for example
 if it has value 2 then the ordering numbers could be
 ``'01', '02', ..., '10', ... '100' ...``
 
-### An example:
+### An example
 
 ```nginx
 upstream  uhost {
@@ -124,6 +134,40 @@ where *server1* is declared active and *server2* is backed up. As soon as
 *server1* is not reachable any longer nginx will route the request to *server2*
 which will rewrite the cookie *rt* and all further client requests will be
 proxied to *server2* until it goes down.
+
+Directive extend_single_peers
+-----------------------------
+
+Peers in upstreams fail according to the rules listed in directive
+*proxy_next_upstream*. If an upstream has only one peer in its main or backup
+part then this peer will never fail. This can be a serious problem when writing
+a custom algorithm for active health checks of upstream peers. Directive
+*extend_single_peers*, being declared in an upstream block, adds a fake peer
+marked as *down* in the main or the backup part of the upstream if the part
+originally contains only one peer. This makes nginx mark the original single
+peer as failed when it fails to pass the rules of *proxy_next_upstream* just
+like in general case of multiple peers.
+
+### An example
+
+```nginx
+upstream  upstream1 {
+    server  s1;
+    extend_single_peers;
+}
+
+upstream  upstream2 {
+    server  s1;
+    server  s2;
+    server  s3 backup;
+    extend_single_peers;
+}
+```
+
+Notice that if a part (the main or the backup) of an upstream contains more than
+one peer (like the main part in *upstream2* from the example) then the directive
+has no effect: particularly, in the *upstream2* it only affects the backup part
+of the upstream.
 
 Block upstrand
 --------------
@@ -283,40 +327,6 @@ to an existing upstrand) *proxy_pass* will most likely return HTTP status *500*
 value of *arg_a* that points to a valid destination), otherwise (both *arg_b*
 and *arg_a* are not set or empty) the request will be sent to the upstrand
 *us2*.
-
-Directive extend_single_peers
------------------------------
-
-Peers in upstreams fail according to the rules listed in directive
-*proxy_next_upstream*. If an upstream has only one peer in its main or backup
-part then this peer will never fail. This can be a serious problem when writing
-a custom algorithm for active health checks of upstream peers. Directive
-*extend_single_peers*, being declared in an upstream block, adds a fake peer
-marked as *down* in the main or the backup part of the upstream if the part
-originally contains only one peer. This makes nginx mark the original single
-peer as failed when it fails to pass the rules of *proxy_next_upstream* just
-like in general case of multiple peers.
-
-### An example
-
-```nginx
-upstream  upstream1 {
-    server  s1;
-    extend_single_peers;
-}
-
-upstream  upstream2 {
-    server  s1;
-    server  s2;
-    server  s3 backup;
-    extend_single_peers;
-}
-```
-
-Notice that if a part (the main or the backup) of an upstream contains more than
-one peer (like the main part in *upstream2* from the example) then the directive
-has no effect: particularly, in the *upstream2* it only affects the backup part
-of the upstream.
 
 See also
 --------
