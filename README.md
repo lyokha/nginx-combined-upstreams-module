@@ -10,11 +10,11 @@ introduced for choosing upstrands in run-time.
 Table of contents
 -----------------
 
-- [Directive add_upstream](#directive-add-upstream)
-- [Directive combine_server_singlets](#directive-combine-server-singlets)
-- [Directive extend_single_peers](#directive-extend-single-peers)
+- [Directive add_upstream](#directive-add_upstream)
+- [Directive combine_server_singlets](#directive-combine_server_singlets)
+- [Directive extend_single_peers](#directive-extend_single_peers)
 - [Block upstrand](#block-upstrand)
-- [Directive dynamic_upstrand](#directive-dynamic-upstrand)
+- [Directive dynamic_upstrand](#directive-dynamic_upstrand)
 - [See also](#see-also)
 
 Directive add_upstream
