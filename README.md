@@ -194,9 +194,11 @@ upstrand us1 {
 Upstrand *us1* will combine all upstreams whose names start with *u0* and
 upstream *b01* as backup. Backup upstreams are checked if all normal upstreams
 fail. The *failure* means that all upstreams in normal or backup cycles have
-responded with statuses listed in directive *next_upstream_statuses* or were
-*blacklisted*. An upstream is set as blacklisted when it has parameter
-*blacklist_interval* and responded with a status listed in the
+responded with statuses listed in directive *next_upstream_statuses* or been
+*blacklisted*. Here the *upstream's response* means the status returned by the
+last server of the upstream, which is strongly affected by value of directive
+*proxy_next_upstream*. An upstream is set as blacklisted when it has parameter
+*blacklist_interval* and responds with a status listed in the
 *next_upstream_statuses*. Blacklisting state is not shared between nginx worker
 processes.
 
@@ -204,13 +206,13 @@ The next four upstrand directives are akin to those from the nginx proxy module.
 
 Directive *next_upstream_statuses* accepts *4xx* and *5xx* statuses notation and
 values *error* and *timeout* to distinguish between cases when errors happen
-with the upstream's peer connection from those when backends send statuses *502*
-or *504* (plain values *502* and *504* refer to the both cases). It also accepts
-value *non_idempotent* to allow further processing of *non-idempotent* requests
-when they were responded by a server from an upstream but failed according to
-other statuses listed in the directive. Requests are considered to be
-non-idempotent when their methods are *POST*, *LOCK* or *PATCH* as in the common
-nginx sense.
+with the upstream's peer connections from those when backends send statuses
+*502* or *504* (plain values *502* and *504* as well as *5xx* refer to both
+cases). It also accepts value *non_idempotent* to allow further processing of
+*non-idempotent* requests when they were responded by the last server from an
+upstream but failed according to other statuses listed in the directive.
+Requests are considered to be non-idempotent when their methods are *POST*,
+*LOCK* or *PATCH* just like in directive *proxy_next_upstream*.
 
 Directive *next_upstream_timeout* limits the overall duration time the upstrand
 cycles through all of its upstreams. If the time elapses while the upstrand is
