@@ -223,7 +223,7 @@ static ngx_command_t  ngx_http_combined_upstreams_commands[] = {
 };
 
 
-static ngx_http_variable_t  ngx_http_conbined_upstreams_vars[] =
+static ngx_http_variable_t  ngx_http_combined_upstreams_vars[] =
 {
     { ngx_string("upstrand_path"), NULL,
       ngx_http_get_upstrand_path_var_value, 0,
@@ -1080,7 +1080,7 @@ ngx_http_combined_upstreams_add_vars(ngx_conf_t *cf)
 {
     ngx_http_variable_t  *var, *v;
 
-    for (v = ngx_http_conbined_upstreams_vars; v->name.len; v++) {
+    for (v = ngx_http_combined_upstreams_vars; v->name.len; v++) {
         var = ngx_http_add_variable(cf, &v->name, v->flags);
         if (var == NULL) {
             return NGX_ERROR;
