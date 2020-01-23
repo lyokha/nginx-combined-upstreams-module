@@ -467,6 +467,9 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
         /* copy HTTP headers to main request */
         r->main->headers_out = r->headers_out;
         /* FIXME: must other fields like upstream_states be copied too? */
+        /* BEWARE: while upstream_states is not copied, it will contain data
+         * regarding only the first upstream visited; when copied, it will
+         * contain data regarding the last upstream visited */
 
         /* adjust pointers to last elements in lists when needed */
         if (r->headers_out.headers.last == &r->headers_out.headers.part) {
