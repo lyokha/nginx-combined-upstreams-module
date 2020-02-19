@@ -720,7 +720,7 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
     for ( ;; ) {
         if (ctx->backup_cycle) {
             if (bu_nelts > 0) {
-                if (difftime(now, bu_elts[cur_bcur].blacklist_last_occurrence)
+                if (now - bu_elts[cur_bcur].blacklist_last_occurrence
                     < bu_elts[cur_bcur].blacklist_interval)
                 {
                     ngx_int_t  old_bcur = cur_bcur;
@@ -743,7 +743,7 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
                 break;
             }
         } else if (u_nelts > 0) {
-            if (difftime(now, u_elts[cur_cur].blacklist_last_occurrence)
+            if (now - u_elts[cur_cur].blacklist_last_occurrence
                 < u_elts[cur_cur].blacklist_interval)
             {
                 ngx_int_t  old_cur = cur_cur;
