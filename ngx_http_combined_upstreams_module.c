@@ -514,8 +514,7 @@ ngx_http_upstrand_response_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
     if (!common->last) {
         /* if upstream buffering is off then its out_bufs must be updated
          * right here! (at least in nginx 1.8.0) */
-        if (!ctx->upstrand->debug_intermediate_stages && u && !u->buffering)
-        {
+        if (!ctx->upstrand->debug_intermediate_stages && u && !u->buffering) {
             u->out_bufs = NULL;
         }
         return ngx_http_next_body_filter(r,
