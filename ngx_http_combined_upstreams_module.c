@@ -476,10 +476,12 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
             r->main->headers_out.headers.last =
                     &r->main->headers_out.headers.part;
         }
+#if nginx_version >= 1013002
         if (r->headers_out.trailers.last == &r->headers_out.trailers.part) {
             r->main->headers_out.trailers.last =
                     &r->main->headers_out.trailers.part;
         }
+#endif
 
         return ngx_http_next_header_filter(r->main);
     }
