@@ -43,6 +43,12 @@ typedef struct {
 } ngx_http_upstrand_conf_t;
 
 
+typedef struct {
+    ngx_array_t  data;
+    ngx_int_t    index;
+} ngx_http_upstrand_var_list_elem_t;
+
+
 ngx_int_t ngx_http_upstrand_init(ngx_conf_t *cf);
 char *ngx_http_dynamic_upstrand(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 ngx_int_t ngx_http_get_upstrand_path_var_value(ngx_http_request_t *r,

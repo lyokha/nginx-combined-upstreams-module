@@ -84,6 +84,12 @@ typedef struct {
 } ngx_http_upstrand_subrequest_ctx_t;
 
 
+typedef struct {
+    ngx_str_t    key;
+    ngx_int_t    index;
+} ngx_http_upstrand_var_handle_t;
+
+
 static ngx_int_t ngx_http_upstrand_intercept_errors(ngx_http_request_t *r,
     ngx_int_t status);
 static ngx_int_t ngx_http_upstrand_response_header_filter(
@@ -258,12 +264,13 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
                     && ngx_current_msec - ctx->start_time
                         >= ctx->upstrand->next_upstream_timeout)
                 {
-
                     common->last = 1;
-                } else {
 
+                } else {
                     if (ngx_http_subrequest(r, &r->main->uri, &r->main->args,
-                                            &sr, NULL, 0) != NGX_OK)
+                                            &sr, NULL,
+                                            NGX_HTTP_SUBREQUEST_CLONE)
+                        != NGX_OK)
                     {
                         return NGX_ERROR;
                     }
@@ -645,16 +652,16 @@ static ngx_int_t
 ngx_http_get_dynamic_upstrand_value(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t  data)
 {
-    ngx_uint_t                                   i;
-    ngx_int_t                                   *index = (ngx_int_t *) data;
-    ngx_int_t                                    found_idx = NGX_ERROR;
-    ngx_http_combined_upstreams_loc_conf_t      *lcf;
-    ngx_array_t                                 *upstrands;
-    ngx_http_combined_upstreams_varlist_elem_t  *upstrands_elts;
-    ngx_array_t                                 *upstrand_cands;
-    ngx_http_combined_upstreams_varhandle_t     *upstrand_cands_elts;
-    ngx_http_variable_value_t                   *upstrand_var = NULL;
-    ngx_str_t                                    upstrand_var_name;
+    ngx_uint_t                               i;
+    ngx_int_t                               *index = (ngx_int_t *) data;
+    ngx_int_t                                found_idx = NGX_ERROR;
+    ngx_http_combined_upstreams_loc_conf_t  *lcf;
+    ngx_array_t                             *upstrands;
+    ngx_http_upstrand_var_list_elem_t       *upstrands_elts;
+    ngx_array_t                             *upstrand_cands;
+    ngx_http_upstrand_var_handle_t          *upstrand_cands_elts;
+    ngx_http_variable_value_t               *upstrand_var = NULL;
+    ngx_str_t                                upstrand_var_name;
 
     if (index == NULL) {
         return NGX_ERROR;
@@ -1160,14 +1167,14 @@ ngx_http_upstrand(ngx_conf_t *cf, ngx_command_t *dummy, void *conf)
 char *
 ngx_http_dynamic_upstrand(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
-    ngx_http_combined_upstreams_loc_conf_t      *lcf = conf;
+    ngx_http_combined_upstreams_loc_conf_t  *lcf = conf;
 
-    ngx_uint_t                                   i;
-    ngx_str_t                                   *value;
-    ngx_http_variable_t                         *v;
-    ngx_http_combined_upstreams_varlist_elem_t  *resvar;
-    ngx_int_t                                    v_idx;
-    ngx_uint_t                                  *v_idx_ptr;
+    ngx_uint_t                               i;
+    ngx_str_t                               *value;
+    ngx_http_variable_t                     *v;
+    ngx_http_upstrand_var_list_elem_t       *resvar;
+    ngx_int_t                                v_idx;
+    ngx_uint_t                              *v_idx_ptr;
 
     value = cf->args->elts;
 
@@ -1186,16 +1193,15 @@ ngx_http_dynamic_upstrand(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     }
 
     if (ngx_array_init(&resvar->data, cf->pool, cf->args->nelts - 2,
-                       sizeof(ngx_http_combined_upstreams_varhandle_t))
-        != NGX_OK)
+                       sizeof(ngx_http_upstrand_var_handle_t)) != NGX_OK)
     {
         return NGX_CONF_ERROR;
     }
 
     for (i = 2; i < cf->args->nelts; i++) {
-        ngx_http_combined_upstreams_varhandle_t  *res;
-        ngx_int_t                                 index = NGX_ERROR;
-        ngx_uint_t                                isvar;
+        ngx_http_upstrand_var_handle_t  *res;
+        ngx_int_t                        index = NGX_ERROR;
+        ngx_uint_t                       isvar;
 
         res = ngx_array_push(&resvar->data);
         if (res == NULL) {

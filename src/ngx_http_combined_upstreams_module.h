@@ -32,18 +32,6 @@ typedef struct {
 } ngx_http_combined_upstreams_loc_conf_t;
 
 
-typedef struct {
-    ngx_array_t  data;
-    ngx_int_t    index;
-} ngx_http_combined_upstreams_varlist_elem_t;
-
-
-typedef struct {
-    ngx_str_t    key;
-    ngx_int_t    index;
-} ngx_http_combined_upstreams_varhandle_t;
-
-
 extern ngx_module_t  ngx_http_combined_upstreams_module;
 
 #endif /* NGX_HTTP_COMBINED_UPSTREAMS_MODULE_H */

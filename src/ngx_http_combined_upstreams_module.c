@@ -188,8 +188,7 @@ ngx_http_combined_upstreams_create_loc_conf(ngx_conf_t *cf)
     }
 
     if (ngx_array_init(&lcf->dyn_upstrands, cf->pool, 1,
-                       sizeof(ngx_http_combined_upstreams_varlist_elem_t))
-        != NGX_OK)
+                       sizeof(ngx_http_upstrand_var_list_elem_t)) != NGX_OK)
     {
         return NULL;
     }
@@ -208,14 +207,14 @@ ngx_http_combined_upstreams_merge_loc_conf(ngx_conf_t *cf, void *parent,
     ngx_uint_t                               i;
 
     for (i = 0; i < prev->dyn_upstrands.nelts; i++) {
-        ngx_http_combined_upstreams_varlist_elem_t  *elem;
+        ngx_http_upstrand_var_list_elem_t  *elem;
 
         elem = ngx_array_push(&conf->dyn_upstrands);
         if (elem == NULL) {
             return NGX_CONF_ERROR;
         }
 
-        *elem = ((ngx_http_combined_upstreams_varlist_elem_t *)
+        *elem = ((ngx_http_upstrand_var_list_elem_t *)
                                                 prev->dyn_upstrands.elts)[i];
     }
 
