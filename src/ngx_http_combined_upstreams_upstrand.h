@@ -32,14 +32,13 @@ typedef struct {
     ngx_array_t                upstreams;
     ngx_array_t                b_upstreams;
     ngx_array_t                next_upstream_statuses;
+    ngx_array_t                intercept_statuses;
     ngx_msec_t                 next_upstream_timeout;
     ngx_int_t                  cur;
     ngx_int_t                  b_cur;
     ngx_http_upstrand_order_e  order;
     ngx_uint_t                 order_per_request:1;
-    ngx_uint_t                 intercept_errors:1;
     ngx_uint_t                 retry_non_idempotent:1;
-    ngx_uint_t                 debug_intermediate_stages:1;
 } ngx_http_upstrand_conf_t;
 
 

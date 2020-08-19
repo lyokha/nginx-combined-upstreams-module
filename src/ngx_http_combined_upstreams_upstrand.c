@@ -58,8 +58,9 @@ typedef struct {
 
 
 typedef struct {
-    ngx_uint_t                               last;
     upstream_finalize_request_pt             upstream_finalize_request;
+    ngx_uint_t                               last:1;
+    ngx_uint_t                               intercepted:1;
 } ngx_http_upstrand_request_common_ctx_t;
 
 
@@ -80,6 +81,12 @@ typedef struct {
 
 
 typedef struct {
+    ngx_int_t                                value;
+    ngx_str_t                                uri;
+} ngx_http_upstrand_intercept_status_data_t;
+
+
+typedef struct {
     ngx_http_upstrand_request_common_ctx_t   common;
 } ngx_http_upstrand_subrequest_ctx_t;
 
@@ -90,8 +97,8 @@ typedef struct {
 } ngx_http_upstrand_var_handle_t;
 
 
-static ngx_int_t ngx_http_upstrand_intercept_errors(ngx_http_request_t *r,
-    ngx_int_t status);
+static ngx_int_t ngx_http_upstrand_intercept_statuses(ngx_http_request_t *r,
+    ngx_array_t *statuses, ngx_int_t status, ngx_str_t *uri);
 static ngx_int_t ngx_http_upstrand_response_header_filter(
     ngx_http_request_t *r);
 static ngx_int_t ngx_http_upstrand_response_body_filter(ngx_http_request_t *r,
@@ -129,25 +136,25 @@ ngx_http_upstrand_init(ngx_conf_t *cf)
 }
 
 
-/* FIXME: simplified version of ngx_http_upstream_intercept_errors(),
- * works fine but may have bugs related to the simplified aspects */
 static ngx_int_t
-ngx_http_upstrand_intercept_errors(ngx_http_request_t *r, ngx_int_t status)
+ngx_http_upstrand_intercept_statuses(ngx_http_request_t *r,
+                                     ngx_array_t *statuses, ngx_int_t status,
+                                     ngx_str_t *uri)
 {
-    ngx_uint_t                 i;
-    ngx_http_err_page_t       *err_page;
-    ngx_http_core_loc_conf_t  *clcf;
+    ngx_uint_t                                  i;
+    ngx_http_upstrand_intercept_status_data_t  *elts;
 
-    clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
+    elts = statuses->elts;
 
-    if (clcf->error_pages == NULL) {
-        return NGX_DECLINED;
-    }
-
-    err_page = clcf->error_pages->elts;
-    for (i = 0; i < clcf->error_pages->nelts; i++) {
-        if (err_page[i].status == status) {
-            return ngx_http_filter_finalize_request(r, NULL, status);
+    for (i = 0; i < statuses->nelts; i++) {
+        if ((elts[i].value == -4 && status >= 400 && status < 500)
+            ||
+            (elts[i].value == -5 && status >= 500 && status < 600)
+            ||
+            elts[i].value == status)
+        {
+            *uri = elts[i].uri;
+            return NGX_OK;
         }
     }
 
@@ -159,6 +166,7 @@ static ngx_int_t
 ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
 {
     ngx_uint_t                               i;
+    ngx_http_request_t                      *sr;
     ngx_http_upstrand_request_ctx_t         *ctx;
     ngx_http_upstrand_subrequest_ctx_t      *sr_ctx;
     ngx_http_upstrand_request_common_ctx_t  *common;
@@ -167,6 +175,9 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
     ngx_int_t                               *next_upstream_statuses;
     ngx_uint_t                               is_next_upstream_status;
     ngx_http_upstrand_status_data_t         *status_data;
+    ngx_int_t                                rc;
+
+    static const ngx_str_t    intercepted = ngx_string("<intercepted>");
 
     ctx = ngx_http_get_module_ctx(r->main, ngx_http_combined_upstreams_module);
     if (ctx == NULL) {
@@ -214,13 +225,15 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
         return NGX_ERROR;
     }
     status_data->r = r;
-    status_data->upstream = ctx->cur_upstream;
+    status_data->upstream = common->intercepted ?
+            intercepted : ctx->cur_upstream;
     ngx_memzero(&status_data->data, sizeof(status_data->data));
 
     if (u) {
         if (u->finalize_request) {
             common->upstream_finalize_request = u->finalize_request;
         }
+        /* BEWARE: the finalizer won't run when proxy_intercept_errors is on */
         u->finalize_request = ngx_http_upstrand_check_upstream_vars;
     }
 
@@ -258,8 +271,6 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
             }
 
             if (!common->last) {
-                ngx_http_request_t  *sr;
-
                 if (ctx->upstrand->next_upstream_timeout
                     && ngx_current_msec - ctx->start_time
                         >= ctx->upstrand->next_upstream_timeout)
@@ -267,7 +278,7 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
                     common->last = 1;
 
                 } else {
-                    if (ngx_http_subrequest(r, &r->main->uri, &r->main->args,
+                    if (ngx_http_subrequest(r, &ctx->r->uri, &ctx->r->args,
                                             &sr, NULL,
                                             NGX_HTTP_SUBREQUEST_CLONE)
                         != NGX_OK)
@@ -288,33 +299,61 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
         common->last = 1;
     }
 
-    if (common->last && ctx->upstrand->intercept_errors) {
-        if (ngx_http_upstrand_intercept_errors(r->main, status) == NGX_OK) {
+    if (common->last) {
+        ngx_str_t  failover_uri;
+
+        if (ctx->upstrand->intercept_statuses.nelts > 0
+            && !common->intercepted
+            && ngx_http_upstrand_intercept_statuses(r,
+                    &ctx->upstrand->intercept_statuses, status, &failover_uri)
+                == NGX_OK)
+        {
+            common->last = 0;
+
+            sr_ctx = ngx_pcalloc(ctx->r->pool,
+                                 sizeof(ngx_http_upstrand_subrequest_ctx_t));
+            if (sr_ctx == NULL) {
+                return NGX_ERROR;
+            }
+            sr_ctx->common.last = 1;
+            sr_ctx->common.intercepted = 1;
+
+            rc = ngx_http_subrequest(r, &failover_uri, NULL, &sr, NULL, 0);
+            if (rc != NGX_OK) {
+                return NGX_ERROR;
+            }
+
+            ngx_http_set_ctx(sr, sr_ctx, ngx_http_combined_upstreams_module);
+
+            /* location must be protected from interceptions by error_page,
+             * this is achieved by setting error_page flag for the request */
+            sr->error_page = 1;
+
             return NGX_OK;
         }
-    }
 
-    if (r != r->main && common->last) {
-        /* copy HTTP headers to main request */
-        r->main->headers_out = r->headers_out;
-        /* FIXME: must other fields like upstream_states be copied too? */
-        /* BEWARE: while upstream_states is not copied, it will contain data
-         * regarding only the first upstream visited; when copied, it will
-         * contain data regarding the last upstream visited */
+        if (r != ctx->r) {
+            /* copy HTTP headers to main request */
+            ctx->r->headers_out = r->headers_out;
+            /* FIXME: must other fields like upstream_states be copied too? */
+            /* BEWARE: while upstream_states is not copied, it will contain data
+             * regarding only the first upstream visited; when copied, it will
+             * contain data regarding the last upstream visited */
 
-        /* adjust pointers to last elements in lists when needed */
-        if (r->headers_out.headers.last == &r->headers_out.headers.part) {
-            r->main->headers_out.headers.last =
-                    &r->main->headers_out.headers.part;
-        }
+            /* adjust pointers to last elements in lists when needed */
+            if (r->headers_out.headers.last == &r->headers_out.headers.part) {
+                ctx->r->headers_out.headers.last =
+                        &ctx->r->headers_out.headers.part;
+            }
 #if nginx_version >= 1013002
-        if (r->headers_out.trailers.last == &r->headers_out.trailers.part) {
-            r->main->headers_out.trailers.last =
-                    &r->main->headers_out.trailers.part;
-        }
+            if (r->headers_out.trailers.last == &r->headers_out.trailers.part) {
+                ctx->r->headers_out.trailers.last =
+                        &ctx->r->headers_out.trailers.part;
+            }
 #endif
 
-        return ngx_http_next_header_filter(r->main);
+            return ngx_http_next_header_filter(ctx->r);
+        }
     }
 
     return ngx_http_next_header_filter(r);
@@ -347,14 +386,13 @@ ngx_http_upstrand_response_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
     if (!common->last) {
         /* if upstream buffering is off then its out_bufs must be updated
          * right here! (at least in nginx 1.8.0) */
-        if (!ctx->upstrand->debug_intermediate_stages && u && !u->buffering) {
+        if (u && !u->buffering) {
             u->out_bufs = NULL;
         }
-        return ngx_http_next_body_filter(r,
-                        ctx->upstrand->debug_intermediate_stages ? in : NULL);
+        return NGX_OK;
     }
 
-    if (!ctx->upstrand->debug_intermediate_stages && in != NULL) {
+    if (in != NULL) {
         ngx_chain_t  *cl = in;
 
         while (cl->next) {
@@ -412,11 +450,11 @@ ngx_http_upstrand_check_upstream_vars(ngx_http_request_t *r, ngx_int_t  rc)
 
         status->data[i].len = var->len;
 
-        if (r == r->main) {
+        if (r == ctx->r) {
             /* main request data must be always accessible */
             status->data[i].data = var->data;
         } else {
-            status->data[i].data = ngx_pnalloc(r->main->pool, var->len);
+            status->data[i].data = ngx_pnalloc(ctx->r->pool, var->len);
             if (status->data[i].data == NULL) {
                 return;
             }
@@ -484,6 +522,10 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
             goto was_accessed;
         }
     }
+
+    /* location must be protected from interceptions by error_page,
+     * this is achieved by setting error_page flag for the request */
+    r->error_page = 1;
 
     if (ctx == NULL) {
         ctx = ngx_pcalloc(r->main->pool,
@@ -866,11 +908,17 @@ ngx_http_upstrand_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     ngx_memzero(upstrand, sizeof(ngx_http_upstrand_conf_t));
 
     if (ngx_array_init(&upstrand->upstreams, cf->pool, 1,
-                       sizeof(ngx_http_upstrand_upstream_conf_t)) != NGX_OK ||
-        ngx_array_init(&upstrand->b_upstreams, cf->pool, 1,
-                       sizeof(ngx_http_upstrand_upstream_conf_t)) != NGX_OK ||
-        ngx_array_init(&upstrand->next_upstream_statuses, cf->pool, 1,
-                       sizeof(ngx_int_t)) != NGX_OK)
+                       sizeof(ngx_http_upstrand_upstream_conf_t))
+            != NGX_OK
+        || ngx_array_init(&upstrand->b_upstreams, cf->pool, 1,
+                          sizeof(ngx_http_upstrand_upstream_conf_t))
+            != NGX_OK
+        || ngx_array_init(&upstrand->next_upstream_statuses, cf->pool, 1,
+                          sizeof(ngx_int_t))
+            != NGX_OK
+        || ngx_array_init(&upstrand->intercept_statuses, cf->pool, 1,
+                          sizeof(ngx_http_upstrand_intercept_status_data_t))
+            != NGX_OK)
     {
         return NGX_CONF_ERROR;
     }
@@ -950,21 +998,6 @@ ngx_http_upstrand(ngx_conf_t *cf, ngx_command_t *dummy, void *conf)
     value = cf->args->elts;
     ctx = cf->ctx;
 
-    if (cf->args->nelts == 1) {
-        if (value[0].len == 16 &&
-            ngx_strncmp(value[0].data, "intercept_errors", 16) == 0)
-        {
-            ctx->upstrand->intercept_errors = 1;
-            return NGX_CONF_OK;
-        }
-        if (value[0].len == 25 &&
-            ngx_strncmp(value[0].data, "debug_intermediate_stages", 25) == 0)
-        {
-            ctx->upstrand->debug_intermediate_stages = 1;
-            return NGX_CONF_OK;
-        }
-    }
-
     if (cf->args->nelts == 2) {
         if (value[0].len == 21 &&
             ngx_strncmp(value[0].data, "next_upstream_timeout", 21) == 0)
@@ -973,7 +1006,7 @@ ngx_http_upstrand(ngx_conf_t *cf, ngx_command_t *dummy, void *conf)
 
             if (ctx->upstrand->next_upstream_timeout) {
                 ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                    "duplicate upstrand directive \"next_upstream_timeout\"");
+                    "duplicate upstrand directive \"%V\"", &value[0]);
                 return NGX_CONF_ERROR;
             }
 
@@ -991,13 +1024,13 @@ ngx_http_upstrand(ngx_conf_t *cf, ngx_command_t *dummy, void *conf)
     }
 
     if (cf->args->nelts == 2 || cf->args->nelts == 3) {
-
         if (value[0].len == 5 && ngx_strncmp(value[0].data, "order", 5) == 0) {
             ngx_uint_t  done[2] = {0, 0};
 
             if (ctx->order_done) {
                 ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                                   "duplicate upstrand directive \"order\"");
+                                   "duplicate upstrand directive \"%V\"",
+                                   &value[0]);
                 return NGX_CONF_ERROR;
             }
 
@@ -1008,7 +1041,8 @@ ngx_http_upstrand(ngx_conf_t *cf, ngx_command_t *dummy, void *conf)
                 {
                     if (done[0]++ > 0) {
                         ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                                    "bad upstrand directive \"order\" content");
+                                    "bad upstrand directive \"%V\" content",
+                                    &value[0]);
                         return NGX_CONF_ERROR;
                     }
                     ctx->upstrand->order = ngx_http_upstrand_order_start_random;
@@ -1019,7 +1053,8 @@ ngx_http_upstrand(ngx_conf_t *cf, ngx_command_t *dummy, void *conf)
                 {
                     if (done[1]++ > 0) {
                         ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                                    "bad upstrand directive \"order\" content");
+                                    "bad upstrand directive \"%V\" content",
+                                    &value[0]);
                         return NGX_CONF_ERROR;
                     }
                     ctx->upstrand->order_per_request = 1;
@@ -1028,7 +1063,8 @@ ngx_http_upstrand(ngx_conf_t *cf, ngx_command_t *dummy, void *conf)
 
             if (done[0] + done[1] != cf->args->nelts - 1) {
                 ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                                   "bad upstrand directive \"order\" content");
+                                   "bad upstrand directive \"%V\" content",
+                                   &value[0]);
                 return NGX_CONF_ERROR;
             }
 
@@ -1050,7 +1086,8 @@ ngx_http_upstrand(ngx_conf_t *cf, ngx_command_t *dummy, void *conf)
                 {
                     if (done[0]++ > 0) {
                         ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                                "bad upstrand directive \"upstream\" content");
+                                           "bad upstrand directive \"%V\" "
+                                           "content", &value[0]);
                         return NGX_CONF_ERROR;
                     }
                 }
@@ -1062,7 +1099,8 @@ ngx_http_upstrand(ngx_conf_t *cf, ngx_command_t *dummy, void *conf)
 
                     if (done[1]++ > 0) {
                         ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                                "bad upstrand directive \"upstream\" content");
+                                           "bad upstrand directive \"%V\" "
+                                           "content", &value[0]);
                         return NGX_CONF_ERROR;
                     }
 
@@ -1082,7 +1120,8 @@ ngx_http_upstrand(ngx_conf_t *cf, ngx_command_t *dummy, void *conf)
 
             if (done[0] + done[1] != cf->args->nelts - 2) {
                 ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                                "bad upstrand directive \"upstream\" content");
+                                   "bad upstrand directive \"%V\" content",
+                                   &value[0]);
                 return NGX_CONF_ERROR;
             }
 
@@ -1097,6 +1136,13 @@ ngx_http_upstrand(ngx_conf_t *cf, ngx_command_t *dummy, void *conf)
         ngx_strncmp(value[0].data, "next_upstream_statuses", 22) == 0)
     {
         ngx_int_t  *status;
+
+        if (cf->args->nelts < 2) {
+            ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                               "bad upstrand directive \"%V\" content",
+                               &value[0]);
+            return NGX_CONF_ERROR;
+        }
 
         for (i = 1; i < cf->args->nelts; i++) {
             ngx_uint_t  invalid_status = 0;
@@ -1158,7 +1204,64 @@ ngx_http_upstrand(ngx_conf_t *cf, ngx_command_t *dummy, void *conf)
         return NGX_CONF_OK;
     }
 
-    ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "bad upstrand directive");
+    if (value[0].len == 18 &&
+        ngx_strncmp(value[0].data, "intercept_statuses", 18) == 0)
+    {
+        ngx_http_upstrand_intercept_status_data_t  *status;
+
+        if (cf->args->nelts < 3) {
+            ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                               "bad upstrand directive \"%V\" content",
+                               &value[0]);
+            return NGX_CONF_ERROR;
+        }
+
+        for (i = 1; i < cf->args->nelts - 1; i++) {
+            ngx_uint_t  invalid_status = 0;
+
+            status = ngx_array_push(&ctx->upstrand->intercept_statuses);
+            if (status == NULL) {
+                return NGX_CONF_ERROR;
+            }
+
+            status->uri = value[cf->args->nelts - 1];
+            status->value = ngx_atoi(value[i].data, value[i].len);
+
+            if (status->value == NGX_ERROR) {
+
+                if (value[i].len == 3 &&
+                    ngx_strncmp(value[i].data + 1, "xx", 2) == 0)
+                {
+                    switch (value[i].data[0]) {
+                    case '4':
+                        status->value = -4;
+                        break;
+                    case '5':
+                        status->value = -5;
+                        break;
+                    default:
+                        invalid_status = 1;
+                        break;
+                    }
+
+                } else {
+                    invalid_status = 1;
+
+                }
+
+                if (invalid_status) {
+                    ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                                       "invalid status \"%V\"", &value[i]);
+                    return NGX_CONF_ERROR;
+                }
+            }
+        }
+
+        return NGX_CONF_OK;
+    }
+
+    ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "bad upstrand directive \"%V\"",
+                       &value[0]);
 
     return NGX_CONF_ERROR;
 }
