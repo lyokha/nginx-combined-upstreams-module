@@ -123,6 +123,9 @@ static ngx_http_output_header_filter_pt  ngx_http_next_header_filter;
 static ngx_http_output_body_filter_pt    ngx_http_next_body_filter;
 
 
+extern ngx_module_t  ngx_http_proxy_module;
+
+
 ngx_int_t
 ngx_http_upstrand_init(ngx_conf_t *cf)
 {
@@ -490,6 +493,7 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
     ngx_uint_t                                u_nelts, bu_nelts;
     ngx_http_upstream_main_conf_t            *umcf;
     ngx_http_upstream_srv_conf_t            **uscfp;
+    ngx_http_upstream_conf_t                 *u;
     time_t                                    now;
     ngx_int_t                                 start_cur, start_bcur;
     ngx_int_t                                 cur_cur, cur_bcur;
@@ -526,6 +530,13 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
     /* location must be protected from interceptions by error_page,
      * this is achieved by setting error_page flag for the request */
     r->error_page = 1;
+
+    /* FIXME: this is a dirty hack: getting proxy module's location
+     * configuration as an upstream configuration is safe only if the upstream
+     * configuration is the first field of the location configuration */
+    u = ngx_http_get_module_loc_conf(r, ngx_http_proxy_module);
+    /* location must also be protected X-Accel-Redirect headers */
+    u->ignore_headers |= NGX_HTTP_UPSTREAM_IGN_XA_REDIRECT;
 
     if (ctx == NULL) {
         ctx = ngx_pcalloc(r->main->pool,

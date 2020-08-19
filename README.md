@@ -187,7 +187,7 @@ upstrand us1 {
     order start_random;
     next_upstream_statuses non_idempotent 204 5xx;
     next_upstream_timeout 60s;
-    #intercept_errors;
+    intercept_statuses 5xx /Internal/failover;
 }
 ```
 
@@ -218,8 +218,20 @@ Directive *next_upstream_timeout* limits the overall duration time the upstrand
 cycles through all of its upstreams. If the time elapses while the upstrand is
 ready to pass to a next upstream, the last upstream cycle result is returned.
 
-Directive *intercept_errors* (commented out in the example) allows intercepting
-the final response by the *error_page*.
+Directive *intercept_statuses* allows *upstrand failover* by intercepting the
+final response in location that matches the given URI. Interceptions must happen
+even when the upstrand times out. Notice also that walking through upstreams in
+an upstrand and the upstrand failover URI are not interceptable. Speaking more
+generally, any internal redirection (by *error_page*, *proxy_intercept_errors*,
+*X-Accel-Redirect* etc.) will break nested subrequests on which the upstrand's
+implementation is based which leads to returning empty responses. These are
+extremely bad cases, and this is why walking through upstreams was protected
+against interceptions. The upstrand failover URI is more affected by this as
+the implementation has less control over its location. Particularly, the
+upstrand failover has only protection against interceptions by *error_page* and
+*proxy_intercept_errors*. This means that the upstrand failover URI location
+must be as simple as possible (e.g. using simple directives like *return* or
+*echo*).
 
 Directive *order* currently accepts only one value *start_random* which means
 that starting upstreams in normal and backup cycles after worker fired up will
