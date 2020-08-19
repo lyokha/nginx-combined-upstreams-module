@@ -1,6 +1,8 @@
 Nginx Combined Upstreams module
 ===============================
 
+[![Build Status](https://travis-ci.com/lyokha/nginx-combined-upstreams-module.svg?branch=master)](https://travis-ci.com/lyokha/nginx-combined-upstreams-module)
+
 The module introduces three directives *add_upstream*,
 *combine_server_singlets*, and *extend_single_peers* available inside upstream
 configuration blocks, and a new configuration block *upstrand* for building
