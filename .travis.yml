@@ -9,6 +9,10 @@ jobs:
       compiler: gcc
     - env: NGXVER=1.16.1
       compiler: gcc
+    - env: NGXVER=1.14.2
+      compiler: gcc
+    - env: NGXVER=1.12.2
+      compiler: gcc
   allow_failures:
     - env: NGXVER=head
 

@@ -12,8 +12,6 @@ __DATA__
 
 === TEST 1: combined upstreams rotation
 --- http_config
-    server_tokens off;
-
     upstream u1 {
         server localhost:8020;
     }
@@ -47,18 +45,18 @@ __DATA__
         upstream ~^u0 blacklist_interval=60s;
         upstream b01 backup;
         order start_random;
-        next_upstream_statuses non_idempotent 204 5xx;
+        next_upstream_statuses error timeout non_idempotent 204 5xx;
         next_upstream_timeout 60s;
     }
     upstrand us2 {
         upstream ~^u0;
         order start_random;
-        next_upstream_statuses 5xx;
+        next_upstream_statuses error timeout 5xx;
     }
     upstrand us3 {
         upstream ~^u0;
         order start_random;
-        next_upstream_statuses 5xx;
+        next_upstream_statuses error timeout 5xx;
         intercept_statuses 5xx /Internal/failover;
     }
 
@@ -155,6 +153,13 @@ __DATA__
             echo "Caught by error_page";
         }
 
+        location /zus1 {
+            gzip on;
+            gzip_min_length 4;
+            gzip_types *;
+            proxy_pass http://$upstrand_us1;
+        }
+
         location /Internal/failover {
             internal;
             echo_status 503;
@@ -208,15 +213,15 @@ In 8060
 === TEST 7: upstrand last returned no live
 --- request
 GET /us2
---- response_body eval
-"<html>\r
-<head><title>503 Service Temporarily Unavailable</title></head>\r
-<body>\r
-<center><h1>503 Service Temporarily Unavailable</h1></center>\r
-<hr><center>nginx</center>\r
-</body>\r
-</html>\r
-"
+--- response_body_filters eval
+sub {
+    my ($text) = @_;
+    my @lines = split /\r\n/, $text;
+    my @matches = grep /503 Service Temporarily Unavailable/, @lines;
+    scalar @matches ? "FOUND" : "NOT FOUND";
+}
+--- response_body chomp
+FOUND
 --- error_code: 503
 
 === TEST 8: upstrand intercepted
@@ -246,4 +251,21 @@ GET /dus1?b=us3
 --- response_body
 Failover
 --- error_code: 503
+
+=== TEST 12: upstrand zipped response
+--- more_headers
+Accept-Encoding: gzip
+--- request
+GET /zus1
+--- response_body_filters eval
+use IO::Uncompress::Gunzip qw (gunzip);
+sub {
+    my ($text) = @_;
+    my $res;
+    gunzip \$text => \$res or die $!;
+    $res;
+}
+--- response_body
+In 8060
+--- error_code: 200
 

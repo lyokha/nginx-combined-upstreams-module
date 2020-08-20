@@ -187,7 +187,7 @@ upstrand us1 {
     upstream ~^u0 blacklist_interval=60s;
     upstream b01 backup;
     order start_random;
-    next_upstream_statuses non_idempotent 204 5xx;
+    next_upstream_statuses error timeout non_idempotent 204 5xx;
     next_upstream_timeout 60s;
     intercept_statuses 5xx /Internal/failover;
 }
