@@ -3,7 +3,7 @@
 use Test::Nginx::Socket;
 
 repeat_each(2);
-plan tests => repeat_each() * (2 * blocks());
+plan tests => repeat_each() * (2 * (blocks() + 2));
 
 no_shuffle();
 run_tests();
@@ -166,56 +166,43 @@ __DATA__
             echo Failover;
         }
 --- request
+# it seems that there is no possibility to model sequential requests patterns
+# such as testing that multiple requests must effectively hit all servers in
+# the upstream, so here is only a simple check that a request hits one of them
 GET /cmb
 --- response_body_like
 Passed to backend[12]$
 --- error_code: 200
 
-=== TEST 2: combined upstreams singlets 1
---- request
-GET /cmb1
---- response_body
-Passed to backend1
---- error_code: 200
+=== TEST 2: combined upstreams singlets
+--- request eval
+["GET /cmb1", "GET /cmb2"]
+--- response_body eval
+["Passed to backend1\n", "Passed to backend2\n"]
+--- error_code eval: [200, 200]
 
-=== TEST 3: combined upstreams singlets 2
---- request
-GET /cmb2
---- response_body
-Passed to backend2
---- error_code: 200
+=== TEST 3: combined upstreams singlets by cookie
+--- more_headers eval
+["Cookie: rt=1", "Cookie: rt=2"]
+--- request eval
+["GET /cmb3", "GET /cmb3"]
+--- response_body eval
+["Passed to backend1\n", "Passed to backend2\n"]
+--- error_code eval: [200, 200]
 
-=== TEST 4: combined upstreams singlets by cookie 1
---- more_headers
-Cookie: rt=1
---- request
-GET /cmb3
---- response_body
-Passed to backend1
---- error_code: 200
-
-=== TEST 5: combined upstreams singlets bu cookie 2
---- more_headers
-Cookie: rt=2
---- request
-GET /cmb3
---- response_body
-Passed to backend2
---- error_code: 200
-
-=== TEST 6: upstrand last returned alive
+=== TEST 4: upstrand last returned alive
 --- request
 GET /us1
 --- response_body
 In 8060
 --- error_code: 200
 
-=== TEST 7: upstrand last returned no live
+=== TEST 5: upstrand last returned no live
 --- request
 GET /us2
 --- response_body_filters eval
 sub {
-    my ($text) = @_;
+    my $text = shift;
     my @lines = split /\r\n/, $text;
     my @matches = grep /503 Service Temporarily Unavailable/, @lines;
     scalar @matches ? "FOUND" : "NOT FOUND";
@@ -224,35 +211,37 @@ sub {
 FOUND
 --- error_code: 503
 
-=== TEST 8: upstrand intercepted
+=== TEST 6: upstrand intercepted
 --- request
 GET /us3
 --- response_body
 Failover
 --- error_code: 503
 
-=== TEST 9: upstrand variable echo
+=== TEST 7: upstrand variable echo
 --- request
+# upstreams u01 and u02 must have been blacklisted to this moment,
+# so upstream b01 is expected to be returned
 GET /echo/us1
 --- response_body
 b01
 --- error_code: 200
 
-=== TEST 10: dynamic upstrand returned alive
+=== TEST 8: dynamic upstrand returned alive
 --- request
 GET /dus1?b=us1
 --- response_body
 In 8060
 --- error_code: 200
 
-=== TEST 11: dynamic upstrand failover
+=== TEST 9: dynamic upstrand failover
 --- request
 GET /dus1?b=us3
 --- response_body
 Failover
 --- error_code: 503
 
-=== TEST 12: upstrand zipped response
+=== TEST 10: upstrand zipped response
 --- more_headers
 Accept-Encoding: gzip
 --- request
@@ -260,7 +249,7 @@ GET /zus1
 --- response_body_filters eval
 use IO::Uncompress::Gunzip qw (gunzip);
 sub {
-    my ($text) = @_;
+    my $text = shift;
     my $res;
     gunzip \$text => \$res or die $!;
     $res;

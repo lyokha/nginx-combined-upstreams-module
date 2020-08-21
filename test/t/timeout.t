@@ -3,7 +3,7 @@
 use Test::Nginx::Socket;
 
 repeat_each(1);
-plan tests => repeat_each() * (2 * 3 * blocks());
+plan tests => repeat_each() * (2 * (blocks() + 2));
 
 no_shuffle();
 run_tests();
