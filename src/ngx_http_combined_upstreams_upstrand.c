@@ -126,10 +126,32 @@ static ngx_http_output_body_filter_pt    ngx_http_next_body_filter;
 
 extern ngx_module_t  ngx_http_proxy_module;
 
+#if 0
+extern ngx_module_t  ngx_http_uwsgi_module;
+extern ngx_module_t  ngx_http_fastcgi_module;
+extern ngx_module_t  ngx_http_scgi_module;
+
+extern ngx_module_t  ngx_http_grpc_module;
+#endif
+
+static ngx_uint_t  ngx_http_upstrand_gw_modules[5];
+
+#define UPSTRAND_EFFECTIVE_GW_MODULES_SIZE 1
+
 
 ngx_int_t
 ngx_http_upstrand_init(ngx_conf_t *cf)
 {
+    ngx_http_upstrand_gw_modules[0] = ngx_http_proxy_module.ctx_index;
+
+#if 0
+    ngx_http_upstrand_gw_modules[1] = ngx_http_uwsgi_module.ctx_index;
+    ngx_http_upstrand_gw_modules[3] = ngx_http_fastcgi_module.ctx_index;
+    ngx_http_upstrand_gw_modules[4] = ngx_http_scgi_module.ctx_index;
+
+    ngx_http_upstrand_gw_modules[4] = ngx_http_grpc_module.ctx_index;
+#endif
+
     ngx_http_next_header_filter = ngx_http_top_header_filter;
     ngx_http_top_header_filter = ngx_http_upstrand_response_header_filter;
 
@@ -535,12 +557,16 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
      * this is achieved by setting error_page flag for the request */
     r->error_page = 1;
 
-    /* FIXME: this is a dirty hack - getting proxy module's location
-     * configuration as an upstream configuration is safe only if the upstream
-     * configuration is the first field of the location configuration */
-    u = ngx_http_get_module_loc_conf(r, ngx_http_proxy_module);
-    /* location must also be protected against X-Accel-Redirect headers */
-    u->ignore_headers |= NGX_HTTP_UPSTREAM_IGN_XA_REDIRECT;
+    for (i = 0; i < UPSTRAND_EFFECTIVE_GW_MODULES_SIZE; i++) {
+        /* FIXME: this is a dirty hack: getting proxy module's location
+         * configuration as an upstream configuration is safe only if the
+         * upstream configuration is the first field of the location
+         * configuration; fortunately, this is true for proxy, uwsgi, fastcgi,
+         * scgi, and grpc modules */
+        u = r->loc_conf[ngx_http_upstrand_gw_modules[i]];
+        /* location must also be protected against X-Accel-Redirect headers */
+        u->ignore_headers |= NGX_HTTP_UPSTREAM_IGN_XA_REDIRECT;
+    }
 
     if (ctx == NULL) {
         ctx = ngx_pcalloc(r->main->pool,

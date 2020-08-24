@@ -101,6 +101,7 @@ __DATA__
 
         location / {
             add_header Upstrand-Server 8060;
+            add_header X-Accel-Redirect /error;
             echo "In 8060";
         }
     }
