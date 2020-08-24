@@ -77,6 +77,7 @@ typedef struct {
     ngx_http_upstrand_request_common_ctx_t   common;
     ngx_uint_t                               backup_cycle:1;
     ngx_uint_t                               all_blacklisted:1;
+    ngx_uint_t                               start_time_done:1;
 } ngx_http_upstrand_request_ctx_t;
 
 
@@ -269,8 +270,11 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
             common->last = 1;
 
         } else {
-            if (u && ctx->start_time == 0) {
-                ctx->start_time = u->peer.start_time;
+            if (!ctx->start_time_done) {
+                if (u) {
+                    ctx->start_time = u->peer.start_time;
+                }
+                ctx->start_time_done = 1;
             }
 
             if (!common->last) {
@@ -574,6 +578,10 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
                 upstrand->b_cur = (upstrand->b_cur + 1) % bu_nelts;
             }
         }
+
+        /* ctx->start_time will be reset to the value of the upstream's first
+         * peer's start_time in ngx_http_upstrand_response_header_filter() */
+        ctx->start_time = ngx_current_msec;
 
         ngx_http_set_ctx(r->main, ctx, ngx_http_combined_upstreams_module);
 
