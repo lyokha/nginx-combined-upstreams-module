@@ -43,8 +43,8 @@ typedef struct {
 
 
 typedef struct {
-    ngx_array_t  data;
-    ngx_int_t    index;
+    ngx_array_t                data;
+    ngx_int_t                  index;
 } ngx_http_upstrand_var_list_elem_t;
 
 

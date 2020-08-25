@@ -38,25 +38,6 @@ typedef struct {
 typedef void (*upstream_finalize_request_pt)(ngx_http_request_t *, ngx_int_t);
 
 
-static const ngx_str_t upstream_vars[] =
-{
-    ngx_string("upstream_addr"),
-    ngx_string("upstream_cache_status"),
-    ngx_string("upstream_connect_time"),
-    ngx_string("upstream_header_time"),
-    ngx_string("upstream_response_length"),
-    ngx_string("upstream_response_time"),
-    ngx_string("upstream_status")
-};
-
-
-typedef struct {
-    ngx_http_request_t                      *r;
-    ngx_str_t                                upstream;
-    ngx_str_t                                data[UPSTREAM_VARS_SIZE];
-} ngx_http_upstrand_status_data_t;
-
-
 typedef struct {
     upstream_finalize_request_pt             upstream_finalize_request;
     ngx_uint_t                               last:1;
@@ -93,9 +74,28 @@ typedef struct {
 
 
 typedef struct {
-    ngx_str_t    key;
-    ngx_int_t    index;
+    ngx_str_t                                key;
+    ngx_int_t                                index;
 } ngx_http_upstrand_var_handle_t;
+
+
+static const ngx_str_t upstream_vars[] =
+{
+    ngx_string("upstream_addr"),
+    ngx_string("upstream_cache_status"),
+    ngx_string("upstream_connect_time"),
+    ngx_string("upstream_header_time"),
+    ngx_string("upstream_response_length"),
+    ngx_string("upstream_response_time"),
+    ngx_string("upstream_status")
+};
+
+
+typedef struct {
+    ngx_http_request_t                      *r;
+    ngx_str_t                                upstream;
+    ngx_str_t                                data[UPSTREAM_VARS_SIZE];
+} ngx_http_upstrand_status_data_t;
 
 
 static ngx_int_t ngx_http_upstrand_intercept_statuses(ngx_http_request_t *r,
@@ -131,7 +131,9 @@ extern ngx_module_t  ngx_http_uwsgi_module;
 extern ngx_module_t  ngx_http_fastcgi_module;
 extern ngx_module_t  ngx_http_scgi_module;
 
+#if (NGX_HTTP_V2)
 extern ngx_module_t  ngx_http_grpc_module;
+#endif
 #endif
 
 static ngx_uint_t  ngx_http_upstrand_gw_modules[5];
@@ -149,7 +151,9 @@ ngx_http_upstrand_init(ngx_conf_t *cf)
     ngx_http_upstrand_gw_modules[3] = ngx_http_fastcgi_module.ctx_index;
     ngx_http_upstrand_gw_modules[4] = ngx_http_scgi_module.ctx_index;
 
+#if (NGX_HTTP_V2)
     ngx_http_upstrand_gw_modules[4] = ngx_http_grpc_module.ctx_index;
+#endif
 #endif
 
     ngx_http_next_header_filter = ngx_http_top_header_filter;
@@ -512,6 +516,7 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
     ngx_http_upstrand_conf_t  *upstrand = (ngx_http_upstrand_conf_t *) data;
 
     ngx_uint_t                                i;
+    ngx_http_combined_upstreams_loc_conf_t   *lcf;
     ngx_http_upstrand_request_ctx_t          *ctx;
     ngx_http_upstrand_subrequest_ctx_t       *sr_ctx;
     ngx_http_upstrand_request_common_ctx_t   *common;
@@ -557,15 +562,20 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
      * this is achieved by setting error_page flag for the request */
     r->error_page = 1;
 
-    for (i = 0; i < UPSTRAND_EFFECTIVE_GW_MODULES_SIZE; i++) {
-        /* FIXME: this is a dirty hack: getting proxy module's location
-         * configuration as an upstream configuration is safe only if the
-         * upstream configuration is the first field of the location
-         * configuration; fortunately, this is true for proxy, uwsgi, fastcgi,
-         * scgi, and grpc modules */
-        u = r->loc_conf[ngx_http_upstrand_gw_modules[i]];
-        /* location must also be protected against X-Accel-Redirect headers */
-        u->ignore_headers |= NGX_HTTP_UPSTREAM_IGN_XA_REDIRECT;
+    lcf = ngx_http_get_module_loc_conf(r, ngx_http_combined_upstreams_module);
+
+    if (!lcf->upstrand_gw_modules_checked) {
+        for (i = 0; i < UPSTRAND_EFFECTIVE_GW_MODULES_SIZE; i++) {
+            /* FIXME: this is a dirty hack: getting proxy module's location
+             * configuration as an upstream configuration is safe only if the
+             * upstream configuration is the first field of the location
+             * configuration; fortunately, this is true for proxy, uwsgi,
+             * fastcgi, scgi, and grpc modules */
+            u = r->loc_conf[ngx_http_upstrand_gw_modules[i]];
+            /* location must be protected against X-Accel-Redirect headers */
+            u->ignore_headers |= NGX_HTTP_UPSTREAM_IGN_XA_REDIRECT;
+        }
+        lcf->upstrand_gw_modules_checked = 1;
     }
 
     if (ctx == NULL) {

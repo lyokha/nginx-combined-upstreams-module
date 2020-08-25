@@ -29,6 +29,7 @@ typedef struct {
 
 typedef struct {
     ngx_array_t  dyn_upstrands;
+    ngx_uint_t   upstrand_gw_modules_checked;
 } ngx_http_combined_upstreams_loc_conf_t;
 
 
