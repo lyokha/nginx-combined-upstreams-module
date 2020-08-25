@@ -101,12 +101,12 @@ __DATA__
 
         location / {
             add_header Upstrand-Server 8060;
-            add_header X-Accel-Redirect /error;
+            add_header X-Accel-Redirect /Internal/error;
             echo "In 8060";
         }
     }
 --- config
-        error_page 503 =200 /error;
+        error_page 503 =200 /Internal/error;
 
         dynamic_upstrand $dus1 $arg_a us2;
 
@@ -150,9 +150,6 @@ __DATA__
         location /echo/dus1 {
             echo $dus1;
         }
-        location /error {
-            echo "Caught by error_page";
-        }
 
         location /zus1 {
             gzip on;
@@ -161,6 +158,10 @@ __DATA__
             proxy_pass http://$upstrand_us1;
         }
 
+        location /Internal/error {
+            internal;
+            echo "Caught by error_page";
+        }
         location /Internal/failover {
             internal;
             echo_status 503;
