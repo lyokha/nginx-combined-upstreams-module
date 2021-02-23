@@ -28,17 +28,15 @@ jobs:
         with:
           install: "Test::Nginx"
           tests: false
-      - name: Install
+      - name: Install and test
         env:
           NGXVER: ${{ matrix.nginx }}
         run: |
           set -e
           if [ "$NGXVER" == head ]
           then
-              echo "Cloning Nginx head ..." 
               git clone https://github.com/nginx/nginx.git nginx-head
           else
-              echo "Getting Nginx version %{NGXVER} ..." 
               wget http://nginx.org/download/nginx-${NGXVER}.tar.gz &&
                   tar xzvf nginx-${NGXVER}.tar.gz
           fi
@@ -54,10 +52,6 @@ jobs:
           make -j2
           export PATH=$(pwd)/objs:$PATH
           cd -
-          set +e
-      - name: Run tests
-        run: |
-          set -e
           cd test
           set +e
           prove -r t
