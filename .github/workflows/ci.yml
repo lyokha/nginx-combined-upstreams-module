@@ -9,17 +9,11 @@ jobs:
     continue-on-error: ${{ matrix.experimental }}
     strategy:
       matrix:
-       include:
-         - nginx: head
-           experimental: true
-         - nginx: 1.18.0
-           experimental: false
-         - nginx: 1.16.1
-           experimental: false
-         - nginx: 1.14.2
-           experimental: false
-         - nginx: 1.12.2
-           experimental: false
+        nginx: [1.12.2, 1.14.2, 1.16.1, 1.18.0]
+        experimental: [false]
+        include:
+          - nginx: head
+            experimental: true
     steps:
       - name: Checkout
         uses: actions/checkout@v2
