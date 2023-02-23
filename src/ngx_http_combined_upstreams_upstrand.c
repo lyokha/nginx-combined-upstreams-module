@@ -323,6 +323,16 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
                     sr->method = r->method;
                     sr->method_name = r->method_name;
 
+                    sr->header_in = r->header_in;
+
+                    /* adjust pointers to last elements in lists when needed */
+                    if (r->headers_in.headers.last
+                        == &r->headers_in.headers.part)
+                    {
+                        sr->headers_in.headers.last =
+                                &sr->headers_in.headers.part;
+                    }
+
                     return NGX_OK;
                 }
             }
@@ -351,6 +361,7 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
             sr_ctx->common.last = 1;
             sr_ctx->common.intercepted = 1;
 
+            /* BEWARE: no special adjustments in the failover subrequest */
             rc = ngx_http_subrequest(r, &failover_uri, NULL, &sr, NULL, 0);
             if (rc != NGX_OK) {
                 return NGX_ERROR;

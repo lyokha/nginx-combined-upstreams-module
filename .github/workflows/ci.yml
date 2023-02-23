@@ -9,7 +9,7 @@ jobs:
     continue-on-error: ${{ matrix.experimental }}
     strategy:
       matrix:
-        nginx: [1.14.2, 1.16.1, 1.18.0, 1.20.1]
+        nginx: [1.16.1, 1.18.0, 1.20.2, 1.22.1]
         experimental: [false]
         include:
           - nginx: head
@@ -47,6 +47,6 @@ jobs:
           export PATH=$(pwd)/objs:$PATH
           cd -
           cd test
-          set +e
           prove -r t
+          set +e
 
