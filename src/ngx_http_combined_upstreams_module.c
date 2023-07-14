@@ -50,7 +50,7 @@ static ngx_command_t  ngx_http_combined_upstreams_commands[] = {
       0,
       NULL },
     { ngx_string("combine_server_singlets"),
-      NGX_HTTP_UPS_CONF|NGX_CONF_NOARGS|NGX_CONF_TAKE12,
+      NGX_HTTP_UPS_CONF|NGX_CONF_NOARGS|NGX_CONF_TAKE123,
       ngx_http_combine_server_singlets,
       0,
       0,
@@ -325,7 +325,7 @@ ngx_http_combine_server_singlets(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     u_char                         *fbuf;
     const char                     *fmt = "%V%d";
     ngx_uint_t                      flen;
-    ngx_uint_t                      byname = 0;
+    ngx_uint_t                      byname = 0, nobackup = 0;
 
     uscf = ngx_http_conf_get_module_srv_conf(cf, ngx_http_upstream_module);
     if (uscf->servers == NULL) {
@@ -337,6 +337,19 @@ ngx_http_combine_server_singlets(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     value = cf->args->elts;
 
     if (cf->args->nelts > 1) {
+        if (value[cf->args->nelts - 1].len == 8
+            && ngx_strncmp(value[cf->args->nelts - 1].data, "nobackup", 8) == 0)
+        {
+            nobackup = 1;
+        }
+    }
+
+    if (cf->args->nelts > 3 && nobackup == 0) {
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "invalid parameters");
+        return NGX_CONF_ERROR;
+    }
+
+    if (cf->args->nelts > 1 + nobackup) {
         suf = value[1];
 
 #if nginx_version >= 1007002
@@ -348,10 +361,10 @@ ngx_http_combine_server_singlets(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         }
 #endif
 
-        if (cf->args->nelts > 2) {
+        if (cf->args->nelts > 2 + nobackup) {
             if (byname > 0) {
                 ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                                   "second parameter is not permitted when "
+                                   "setting field width is not permitted when "
                                    "using \"byname\" value");
                 return NGX_CONF_ERROR;
             }
@@ -367,7 +380,7 @@ ngx_http_combine_server_singlets(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
             {
                 if (ngx_atoi(value[2].data, value[2].len) == NGX_ERROR) {
                     ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                                       "second parameter \"%V\" must be an "
+                                       "field width \"%V\" must be an "
                                        "integer value", &value[2]);
                     return NGX_CONF_ERROR;
                 }
@@ -463,7 +476,11 @@ ngx_http_combine_server_singlets(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         ngx_memcpy(usn, uscf->servers->elts,
                    sizeof(ngx_http_upstream_server_t) * uscf->servers->nelts);
         for (j = 0; j < uscf->servers->nelts; ++j) {
-            usn[j].backup = i == j ? 0 : 1;
+            if (nobackup) {
+                usn[j].down = i == j ? usn[j].down : 1;
+            } else {
+                usn[j].backup = i == j ? 0 : 1;
+            }
         }
 
         /*ngx_conf_log_error(NGX_LOG_ERR, cf, 0,*/

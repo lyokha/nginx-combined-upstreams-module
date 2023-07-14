@@ -51,7 +51,9 @@ adjust their names. The 1st parameter is a suffix added after the name of the
 host upstream and before the ordering number. The 2nd parameter must be an
 integer value which defines *zero-alignment* of the ordering number, for example
 if it has value 2 then the ordering numbers could be
-``'01', '02', ..., '10', ... '100' ...``
+``'01', '02', ..., '10', ... '100' ...``. There is another optional parameter
+*nobackup* which marks secondary servers as down rather than backup. This
+parameter must be put after all other parameters.
 
 ### An example
 

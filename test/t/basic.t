@@ -3,7 +3,7 @@
 use Test::Nginx::Socket;
 
 repeat_each(2);
-plan tests => repeat_each() * (2 * (blocks() + 2));
+plan tests => repeat_each() * (2 * (blocks() + 3));
 
 no_shuffle();
 run_tests();
@@ -29,6 +29,11 @@ __DATA__
         combine_server_singlets;
         combine_server_singlets byname;
         combine_server_singlets _tmp_ 2;
+    }
+    upstream u4 {
+        server localhost:8020;
+        server localhost:8030;
+        combine_server_singlets _single_ nobackup;
     }
 
     upstream u01 {
@@ -57,6 +62,12 @@ __DATA__
         upstream ~^u0;
         order start_random;
         next_upstream_statuses error timeout 5xx;
+        intercept_statuses 5xx /Internal/failover;
+    }
+    upstrand us4 {
+        upstream ~^u4_single_ blacklist_interval=60s;
+        order per_request;
+        next_upstream_statuses 5xx;
         intercept_statuses 5xx /Internal/failover;
     }
 
@@ -135,6 +146,9 @@ __DATA__
         }
         location /us3 {
             proxy_pass http://$upstrand_us3;
+        }
+        location /us4 {
+            proxy_pass http://$upstrand_us4;
         }
         location /echo/us1 {
             echo $upstrand_us1;
@@ -259,4 +273,11 @@ sub {
 --- response_body
 In 8060
 --- error_code: 200
+
+=== TEST 11: combined upstreams singlets in upstrand with no round-robin
+--- request eval
+["GET /us4", "GET /us4"]
+--- response_body eval
+["Passed to backend1\n", "Passed to backend1\n"]
+--- error_code eval: [200, 200]
 
