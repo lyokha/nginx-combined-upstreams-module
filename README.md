@@ -301,7 +301,7 @@ To illustrate this, let's emulate an upstream without round-robin balancing.
     }
 
     upstrand us1 {
-        upstream ~^u4_single_ blacklist_interval=60s;
+        upstream ~^u1_single_ blacklist_interval=60s;
         order per_request;
         next_upstream_statuses error timeout non_idempotent 5xx;
         intercept_statuses 5xx /Internal/failover;
