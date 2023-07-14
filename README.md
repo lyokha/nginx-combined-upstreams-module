@@ -296,17 +296,11 @@ To illustrate this, let's emulate an upstream without round-robin balancing.
 ```nginx
     upstream u1 {
         server localhost:8020;
-    }
-    upstream u2 {
-        server localhost:8030;
-    }
-    upstream u3 {
-        server localhost:8020;
         server localhost:8030;
         combine_server_singlets _single_ nobackup;
     }
 
-    upstrand us3 {
+    upstrand us1 {
         upstream ~^u4_single_ blacklist_interval=60s;
         order per_request;
         next_upstream_statuses error timeout non_idempotent 5xx;
@@ -314,11 +308,11 @@ To illustrate this, let's emulate an upstream without round-robin balancing.
     }
 ```
 
-Directive *combine_server_singlets* in upstream *u3* generates two singlet
-upstreams *u3_single_1* and *u3_single_2* to inhabit upstrand *us3*. Due to
+Directive *combine_server_singlets* in upstream *u1* generates two singlet
+upstreams *u1_single_1* and *u1_single_2* to inhabit upstrand *us1*. Due to
 *per_request* ordering inside the upstrand, the two upstreams will be traversed
-by order *u3_single_1 -> u3_single_2* in each client request. This behavior is
-equivalent to proxying to upstream *u3* with round-robin switched off.
+in order *u1_single_1 -> u1_single_2* in each client request. This behavior is
+equivalent to proxying to upstream *u1* with round-robin switched off.
 
 Directive dynamic_upstrand
 --------------------------
