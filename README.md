@@ -292,6 +292,8 @@ upstream that comprises a number of clusters representing natural upstreams and
 allows short-cycling over them.
 
 To illustrate this, let's emulate an upstream without round-robin balancing.
+Every new client request will start by proxying from the first server in the
+upstream list and then failing over to the next server.
 
 ```nginx
     upstream u1 {
@@ -311,8 +313,7 @@ To illustrate this, let's emulate an upstream without round-robin balancing.
 Directive *combine_server_singlets* in upstream *u1* generates two singlet
 upstreams *u1_single_1* and *u1_single_2* to inhabit upstrand *us1*. Due to
 *per_request* ordering inside the upstrand, the two upstreams will be traversed
-in order *u1_single_1 -> u1_single_2* in each client request. This behavior is
-equivalent to proxying to upstream *u1* with round-robin switched off.
+in order *u1_single_1 → u1_single_2* in each client request.
 
 Directive dynamic_upstrand
 --------------------------
