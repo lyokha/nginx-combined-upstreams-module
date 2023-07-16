@@ -292,7 +292,7 @@ upstream that comprises a number of clusters representing natural upstreams and
 allows short-cycling over them.
 
 To illustrate this, let's emulate an upstream without round-robin balancing.
-Every new client request will start by proxying from the first server in the
+Every new client request will start by proxying to the first server in the
 upstream list and then failing over to the next server.
 
 ```nginx
