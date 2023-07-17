@@ -26,7 +26,7 @@ Directive add_upstream
 Populates the host upstream with servers listed in an already defined upstream
 specified by the mandatory 1st parameter of the directive. Optional 2nd
 parameter may have only value *backup* which marks all servers of the sourced
-upstream as backups.
+upstream as backup.
 
 ### An example
 
@@ -44,16 +44,16 @@ Directive combine_server_singlets
 
 Produces multiple *singlet upstreams* from servers so far defined in the host
 upstream. A singlet upstream contains only one active server whereas other
-servers are marked as backups. If no parameters were passed then the singlet
-upstreams will have names of the host upstream appended by the ordering number
-of the active server in the host upstream. Optional 2 parameters can be used to
-adjust their names. The 1st parameter is a suffix added after the name of the
-host upstream and before the ordering number. The 2nd parameter must be an
-integer value which defines *zero-alignment* of the ordering number, for example
-if it has value 2 then the ordering numbers could be
-``'01', '02', ..., '10', ... '100' ...``. There is another optional parameter
-*nobackup* which marks secondary servers as down rather than backup. This
-parameter must be put after all other parameters.
+servers are marked as backup or down. If no parameters were passed then the
+singlet upstreams will have names of the host upstream appended by the ordering
+number of the active server in the host upstream. Optional 2 parameters can be
+used to adjust their names. The 1st parameter is a suffix added after the name
+of the host upstream and before the ordering number. The 2nd parameter must be
+an integer value which defines *zero-alignment* of the ordering number. For
+example, if it has value 2 then the ordering numbers could be
+``'01', '02', ..., '10', ... '100' ...``. To mark secondary servers as down
+rather than backup, use another optional parameter *nobackup*. This
+parameter must be put in the end, after all other parameters.
 
 ### An example
 
@@ -72,15 +72,15 @@ upstream  uhost {
 
 ### Why numbers, not names?
 
-In the example above singlet upstreams will have names like *uhost_single_01*,
+In the example above, singlet upstreams will have names like *uhost_single_01*,
 but names that contain server names like *uhost_single_s1* would look better and
-more convenient. Why not use them instead ordering numbers? Unfortunately nginx
+more convenient. Why not use them instead ordering numbers? Unfortunately, Nginx
 does not remember server names after a server has been added into an upstream,
 therefore we cannot simply fetch them.
 
-*Update.* There is a good news! Since version *1.7.2* nginx remembers server
+*Update.* There is a good news! Since version *1.7.2*, Nginx remembers server
 names in upstream data and now we can use them when referring to a special
-keyword *byname*. For example
+keyword *byname*. For example,
 
 ```nginx
     combine_server_singlets  byname;
@@ -88,14 +88,14 @@ keyword *byname*. For example
     combine_server_singlets  _single_ byname;
 ```
 
-All colons (*:*) in the server names are replaced with underscores (*_*).
+All colons (*:*) in the server names get replaced with underscores (*_*).
 
 ### Where this can be useful
 
-Hmm, I do not know. Anyway a singlet upstream is a prominent category because it
-defines a single server with fallback mode. We can use them to provide robust
-HTTP session management when backend servers identify themselves using a known
-mechanism like HTTP cookies.
+Hmm, I do not know. Anyway, a singlet upstream is a prominent category because
+it declares a single server with fallback mode. We can use them to provide
+robust HTTP session management when backend servers identify themselves using a
+known mechanism like HTTP cookies.
 
 ```nginx
 upstream  uhost {
@@ -129,14 +129,14 @@ server {
 }
 ```
 
-In this configuration the first client request will choose backend server
+In this configuration, the first client request will choose backend server
 randomly, the chosen server will set cookie *rt* to a predefined value (*1* or
-*2*) and all further requests from this client will be proxied to the chosen
-server automatically until it goes down. Say it was *server1*, then when it goes
-down the cookie *rt* on the client side will still be *1*. Directive
+*2*), and all further requests from this client will be proxied to the chosen
+server automatically until it goes down. Say, it was *server1*, then when it
+goes down, the cookie *rt* on the client side will still be *1*. Directive
 *proxy_pass* will route the next client request to a singlet upstream *uhost1*
 where *server1* is declared active and *server2* is backed up. As soon as
-*server1* is not reachable any longer nginx will route the request to *server2*
+*server1* is not reachable any longer, Nginx will route the request to *server2*
 which will rewrite the cookie *rt* and all further client requests will be
 proxied to *server2* until it goes down.
 
@@ -149,9 +149,9 @@ part then this peer will never fail. This can be a serious problem when writing
 a custom algorithm for active health checks of upstream peers. Directive
 *extend_single_peers*, being declared in an upstream block, adds a fake peer
 marked as *down* in the main or the backup part of the upstream if the part
-originally contains only one peer. This makes nginx mark the original single
+originally contains only one peer. This makes Nginx mark the original single
 peer as failed when it fails to pass the rules of *proxy_next_upstream* just
-like in general case of multiple peers.
+like in the general case of multiple peers.
 
 ### An example
 
@@ -200,14 +200,14 @@ Upstrand *us1* will combine all upstreams whose names start with *u0* and
 upstream *b01* as backup. Backup upstreams are checked if all normal upstreams
 fail. The *failure* means that all upstreams in normal or backup cycles have
 responded with statuses listed in directive *next_upstream_statuses* or been
-*blacklisted*. Here the *upstream's response* means the status returned by the
+*blacklisted*. Here, the *upstream's response* means the status returned by the
 last server of the upstream, which is strongly affected by value of directive
 *proxy_next_upstream*. An upstream is set as blacklisted when it has parameter
 *blacklist_interval* and responds with a status listed in the
-*next_upstream_statuses*. Blacklisting state is not shared between nginx worker
+*next_upstream_statuses*. Blacklisting state is not shared between Nginx worker
 processes.
 
-The next four upstrand directives are akin to those from the nginx proxy module.
+The next four upstrand directives are akin to those from the Nginx proxy module.
 
 Directive *next_upstream_statuses* accepts *4xx* and *5xx* statuses notation and
 values *error* and *timeout* to distinguish between cases when errors happen
@@ -256,8 +256,8 @@ location /us1 {
 }
 ```
 
-But be careful when accessing this variable from other directives! It starts up
-the subrequests machinery which may be not desirable in many cases.
+Be careful when accessing this variable from other directives! It starts up the
+subrequests machinery which may be not desirable in many cases.
 
 ### Upstrand status variables
 
@@ -275,17 +275,17 @@ The *upstrand* looks very similar to a simple combined upstream but it also has
 a crucial difference: the upstreams inside of an upstrand do not get flattened
 and keep holding their identities. This gives a possibility to configure a
 *failover* status for a group of servers associated with a single upstream
-without need to check them all by turn. In the above example upstrand *us1* may
+without need to check them all by turn. In the above example, upstrand *us1* may
 hold a list of upstreams like *u01*, *u02* etc. Imagine that upstream *u01*
 holds 10 servers inside and represents a part of a geographically distributed
-backend system. Let upstrand *us1* combine all those geographical parts and we
-have an application that polls the parts for doing some tasks. Let backends send
-HTTP status *204* if they do not have new tasks. In a flat combined upstream all
-10 servers may be polled before the application will finally receive a new task
-from another upstream. The upstrand *us1* allows skipping to the next upstream
-after checking the first server in an upstream that does not have tasks. This
-machinery is apparently suitable for *upstreams broadcasting*, when messages are
-being sent to all upstreams in an upstrand.
+backend system. Let upstrand *us1* combine all such parts in a whole, and let us
+run a client application that polls the parts for doing some tasks. Let the
+backends send HTTP status *204* if they do not have new tasks. In a flat
+combined upstream, all 10 servers may have been polled before the application
+will finally receive a new task from another upstream. The upstrand *us1* allows
+skipping to the next upstream after checking the first server in an upstream
+that does not have tasks. This machinery is apparently suitable for *upstream
+broadcasting*, when messages are being sent to all upstreams in an upstrand.
 
 The examples above show that an upstrand can be regarded as a *2-dimensional*
 upstream that comprises a number of clusters representing natural upstreams and
@@ -360,9 +360,9 @@ be sent to an upstrand with name equal to the value of *arg_b*. If there is not
 an upstrand with this name then *dus2* will be empty and *proxy_pass* will
 return HTTP status *500*. To prevent initialization of a dynamic upstrand
 variable with empty value, its declaration must be terminated with a literal
-name that corresponds to an existing upstrand. In this example dynamic upstrand
+name that corresponds to an existing upstrand. In this example, dynamic upstrand
 variable *dus1* will be initialized by the upstrand *us2* if *arg_a* is empty or
-not set. Altogether if *arg_b* is not set or empty and *arg_a* is set and has a
+not set. Altogether, if *arg_b* is not set or empty and *arg_a* is set and has a
 value equal to an existing upstrand, the request will be sent to this upstrand,
 otherwise (if *arg_b* is not set or empty and *arg_a* is set but does not refer
 to an existing upstrand) *proxy_pass* will most likely return HTTP status *500*
@@ -379,7 +379,7 @@ There are several articles about the module in my blog, in chronological order:
 1. [*Простой модуль nginx для создания комбинированных
 апстримов*](http://lin-techdet.blogspot.com/2011/10/nginx.html) (in Russian). A
 comprehensive article discovering details of implementation of directive
-*add_upstream* which can also be regarded as a small tutorial for nginx modules
+*add_upstream* which can also be regarded as a small tutorial for Nginx modules
 development.
 2. [*nginx upstrand to configure super-layers of
 upstreams*](http://lin-techdet.blogspot.com/2015/09/nginx-upstrand-to-configure-super.html).
