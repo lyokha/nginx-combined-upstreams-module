@@ -27,7 +27,7 @@ jobs:
           NGXVER: ${{ matrix.nginx }}
         run: |
           set -e
-          if [ "$NGXVER" == head ]
+          if [ "$NGXVER" = head ]
           then
               git clone https://github.com/nginx/nginx.git nginx-head
           else
@@ -36,7 +36,7 @@ jobs:
           fi
           git clone https://github.com/openresty/echo-nginx-module.git
           cd nginx-${NGXVER}/
-          if [ "$NGXVER" == head ]
+          if [ "$NGXVER" = head ]
           then
               NGX_CONFIGURE=./auto/configure
           else
@@ -44,7 +44,7 @@ jobs:
           fi
           $NGX_CONFIGURE --add-module=.. --add-module=../echo-nginx-module
           make -j2
-          export PATH=$(pwd)/objs:$PATH
+          export PATH="$(pwd)/objs:$PATH"
           cd -
           cd test
           prove -r t
