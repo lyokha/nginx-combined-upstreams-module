@@ -35,7 +35,7 @@ sourced upstream by multiplying them by factor *N*.
 ```nginx
 upstream  combined {
     add_upstream    upstream1;            # src upstream 1
-    add_upstream    upstream2;            # src upstream 2
+    add_upstream    upstream2 weight=2;   # src upstream 2
     server          some_another_server;  # if needed
     add_upstream    upstream3 backup;     # src upstream 3
 }
