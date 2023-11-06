@@ -44,7 +44,7 @@ static ngx_int_t ngx_http_upstream_init_extend_single_peers(ngx_conf_t *cf,
 static ngx_command_t  ngx_http_combined_upstreams_commands[] = {
 
     { ngx_string("add_upstream"),
-      NGX_HTTP_UPS_CONF|NGX_CONF_TAKE12,
+      NGX_HTTP_UPS_CONF|NGX_CONF_TAKE123,
       ngx_http_add_upstream,
       0,
       0,
@@ -257,6 +257,7 @@ ngx_http_add_upstream(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     ngx_http_upstream_server_t     *us;
     ngx_str_t                      *value;
     ngx_uint_t                      backup = 0;
+    ngx_int_t                       weight = 0;
 
     umcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_upstream_module);
     uscf = ngx_http_conf_get_module_srv_conf(cf, ngx_http_upstream_module);
@@ -270,12 +271,29 @@ ngx_http_add_upstream(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         return NGX_CONF_ERROR;
     }
 
-    if (cf->args->nelts == 3) {
-        if (ngx_strncmp(value[2].data, "backup", 6) == 0) {
+    for (i = 2; i < cf->args->nelts; i++) {
+        if (ngx_strncmp(value[i].data, "backup", 6) == 0) {
+            if (backup) {
+                ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                            "parameter \"backup\" has been already declared");
+                return NGX_CONF_ERROR;
+            }
             backup = 1;
+        } else if (ngx_strncmp(value[i].data, "weight=", 7) == 0) {
+            if (weight) {
+                ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                            "parameter \"weight\" has been already declared");
+                return NGX_CONF_ERROR;
+            }
+            weight = ngx_atoi(value[i].data + 7, value[i].len - 7);
+            if (weight < 1) {
+                ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                    "parameter \"weight\" must be a positive integer value");
+                return NGX_CONF_ERROR;
+            }
         } else {
             ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "invalid parameter \"%V\"",
-                               &value[2]);
+                               &value[i]);
             return NGX_CONF_ERROR;
         }
     }
@@ -301,6 +319,11 @@ ngx_http_add_upstream(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
             if (backup) {
                 for (j = 0; j < uscfp[i]->servers->nelts; j++) {
                     us[j].backup = 1;
+                }
+            }
+            if (weight) {
+                for (j = 0; j < uscfp[i]->servers->nelts; j++) {
+                    us[j].weight *= weight;
                 }
             }
 

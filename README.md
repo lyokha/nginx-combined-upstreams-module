@@ -24,9 +24,11 @@ Directive add_upstream
 ----------------------
 
 Populates the host upstream with servers listed in an already defined upstream
-specified by the mandatory 1st parameter of the directive. Optional 2nd
-parameter may have only value *backup* which marks all servers of the sourced
-upstream as backup.
+specified by the mandatory 1st parameter of the directive. The server attributes
+such as weights, max_fails and others are kept in the host upstream. Optional
+parameters may include values *backup* to mark all servers of the sourced
+upstream as backup servers and *weight=N* to calibrate weights of servers of the
+sourced upstream by multiplying them by factor *N*.
 
 ### An example
 
