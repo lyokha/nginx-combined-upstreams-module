@@ -5,7 +5,7 @@
  *
  *    Description:  nginx module for building combined upstreams
  *
- *        Version:  2.0
+ *        Version:  2.2
  *        Created:  05.10.2011 16:06:15
  *
  *         Author:  Alexey Radkov (), 
