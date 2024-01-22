@@ -96,9 +96,9 @@ All colons (*:*) in the server names get replaced with underscores (*_*).
 
 ### Where this can be useful
 
-A singlet upstream declares a single server with fallback mode. This can be used
-to manage sticky HTTP sessions when backend servers identify themselves using a
-proper mechanism such as HTTP cookies.
+A singlet upstream acts like a single server with fallback mode. This can be
+used to manage sticky HTTP sessions when backend servers identify themselves
+with a proper mechanism such as HTTP cookies.
 
 ```nginx
 upstream  uhost {
