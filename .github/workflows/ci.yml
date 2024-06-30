@@ -18,7 +18,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Install prove
-        uses: perl-actions/install-with-cpanm@v1.5
+        uses: perl-actions/install-with-cpanm@v1.7
         with:
           install: "Test::Nginx"
           tests: false
