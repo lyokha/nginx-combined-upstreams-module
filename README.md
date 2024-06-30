@@ -18,6 +18,7 @@ Table of contents
 - [Directive extend_single_peers](#directive-extend_single_peers)
 - [Block upstrand](#block-upstrand)
 - [Directive dynamic_upstrand](#directive-dynamic_upstrand)
+- [Build and test](#build-and-test)
 - [See also](#see-also)
 
 Directive add_upstream
@@ -373,6 +374,46 @@ to an existing upstrand) *proxy_pass* will most likely return HTTP status *500*
 value of *arg_a* that points to a valid destination), otherwise (both *arg_b*
 and *arg_a* are not set or empty) the request will be sent to the upstrand
 *us2*.
+
+Build and test
+--------------
+
+The module is built with the standard Nginx build approach from the directory
+with Nginx source files. If you want to link this module with the Nginx
+executable file statically, use *configure* option *--add-module*, e.g.
+
+```ShellSession
+$ ./configure --add-module=/path/to/this/module
+$ make
+$ sudo make install
+```
+
+To use the module as a dynamic library, choose option *--add-dynamic-module*.
+
+```ShellSession
+$ ./configure --add-dynamic-module=/path/to/this/module
+$ make
+$ sudo make install
+```
+
+In the latter case, put directive
+
+```nginx
+load_module modules/ngx_http_combined_upstreams_module.so
+```
+
+in the Nginx configuration file.
+
+With command *prove* from Perl module *Test::Harness* and Perl module
+*Test::Nginx::Socket*, tests can be run by a regular user from directory
+*test/*.
+
+```ShellSession
+$ prove -r t
+```
+
+Add option *-v* for verbose output. Before run, you may need to adjust
+environment variable *PATH* to point to the Nginx installation directory.
 
 See also
 --------
