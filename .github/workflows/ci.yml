@@ -55,10 +55,8 @@ jobs:
               `"archive/refs/tags/$NGXEASYCTXVER.tar.gz" \
                -O "nginx-easy-context-$NGXEASYCTXVER.tar.gz" &&
                   tar xzvf "nginx-easy-context-$NGXEASYCTXVER.tar.gz"
-          sed -i 's/# \('`
-              `'NGX_HTTP_COMBINED_UPSTREAMS_PERSISTENT_UPSTRAND_INTERCEPT_CTX'`
-              `'=1\)/\1/' config
           cd nginx-${NGXVER}/
+          NGX_HTTP_COMBINED_UPSTREAMS_PERSISTENT_UPSTRAND_INTERCEPT_CTX=1 \
           $NGX_CONFIGURE --add-module=../nginx-easy-context-$NGXEASYCTXVER \
               --add-module=.. --add-module=../echo-nginx-module
           make -j2
