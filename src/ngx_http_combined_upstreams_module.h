@@ -20,10 +20,16 @@
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
+#ifdef NGX_HTTP_COMBINED_UPSTREAMS_UPSTRAND_PERSISTENT_INTERCEPT_CTX
+#include "ngx_easy_context.h"
+#endif
 
 
 typedef struct {
-    ngx_array_t  upstrands;
+    ngx_array_t                 upstrands;
+#ifdef NGX_HTTP_COMBINED_UPSTREAMS_UPSTRAND_PERSISTENT_INTERCEPT_CTX
+    ngx_http_easy_ctx_handle_t  upstrand_intercept_ctx;
+#endif
 } ngx_http_combined_upstreams_main_conf_t;
 
 

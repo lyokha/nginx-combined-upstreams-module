@@ -26,7 +26,6 @@ jobs:
         env:
           NGXVER: ${{ matrix.nginx }}
         run: |
-          set -e
           if [ "$NGXVER" = head ]
           then
               git clone https://github.com/nginx/nginx.git nginx-head
@@ -48,5 +47,4 @@ jobs:
           cd -
           cd test
           prove -r t
-          set +e
 

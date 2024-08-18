@@ -118,6 +118,9 @@ static char *ngx_http_upstrand_add_upstream(ngx_conf_t *cf,
 static char *ngx_http_upstrand_regex_add_upstream(ngx_conf_t *cf,
     ngx_array_t *upstreams, ngx_str_t *name, time_t blacklist_interval);
 #endif
+static ngx_http_upstrand_subrequest_ctx_t
+    *ngx_http_get_upstrand_subrequest_ctx(ngx_http_request_t *r,
+    ngx_http_request_t *ctx_r);
 
 
 static ngx_http_output_header_filter_pt  ngx_http_next_header_filter;
@@ -144,6 +147,20 @@ static ngx_uint_t  ngx_http_upstrand_gw_modules[5];
 ngx_int_t
 ngx_http_upstrand_init(ngx_conf_t *cf)
 {
+#ifdef NGX_HTTP_COMBINED_UPSTREAMS_UPSTRAND_PERSISTENT_INTERCEPT_CTX
+    ngx_http_combined_upstreams_main_conf_t  *mcf;
+
+    mcf = ngx_http_conf_get_module_main_conf(cf,
+                                    ngx_http_combined_upstreams_module);
+
+    if (ngx_http_register_easy_ctx(cf, &ngx_http_combined_upstreams_module,
+                                   &mcf->upstrand_intercept_ctx)
+        == NGX_ERROR)
+    {
+        return NGX_ERROR;
+    }
+#endif
+
     ngx_http_upstrand_gw_modules[0] = ngx_http_proxy_module.ctx_index;
 
 #if 0
@@ -195,17 +212,20 @@ ngx_http_upstrand_intercept_statuses(ngx_http_request_t *r,
 static ngx_int_t
 ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
 {
-    ngx_uint_t                               i;
-    ngx_http_request_t                      *sr;
-    ngx_http_upstrand_request_ctx_t         *ctx;
-    ngx_http_upstrand_subrequest_ctx_t      *sr_ctx;
-    ngx_http_upstrand_request_common_ctx_t  *common;
-    ngx_http_upstream_t                     *u;
-    ngx_int_t                                status;
-    ngx_int_t                               *next_upstream_statuses;
-    ngx_uint_t                               is_next_upstream_status;
-    ngx_http_upstrand_status_data_t         *status_data;
-    ngx_int_t                                rc;
+    ngx_uint_t                                i;
+#ifdef NGX_HTTP_COMBINED_UPSTREAMS_UPSTRAND_PERSISTENT_INTERCEPT_CTX
+    ngx_http_combined_upstreams_main_conf_t  *mcf;
+#endif
+    ngx_http_request_t                       *sr;
+    ngx_http_upstrand_request_ctx_t          *ctx;
+    ngx_http_upstrand_subrequest_ctx_t       *sr_ctx;
+    ngx_http_upstrand_request_common_ctx_t   *common;
+    ngx_http_upstream_t                      *u;
+    ngx_int_t                                 status;
+    ngx_int_t                                *next_upstream_statuses;
+    ngx_uint_t                                is_next_upstream_status;
+    ngx_http_upstrand_status_data_t          *status_data;
+    ngx_int_t                                 rc;
 
     static const ngx_str_t    intercepted = ngx_string("<intercepted>");
 
@@ -215,7 +235,7 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
     }
 
     if (r != ctx->r) {
-        sr_ctx = ngx_http_get_module_ctx(r, ngx_http_combined_upstreams_module);
+        sr_ctx = ngx_http_get_upstrand_subrequest_ctx(r, ctx->r);
         if (sr_ctx == NULL) {
             return NGX_ERROR;
         }
@@ -369,9 +389,20 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
 
             ngx_http_set_ctx(sr, sr_ctx, ngx_http_combined_upstreams_module);
 
+#ifdef NGX_HTTP_COMBINED_UPSTREAMS_UPSTRAND_PERSISTENT_INTERCEPT_CTX
+            mcf = ngx_http_get_module_main_conf(r,
+                                        ngx_http_combined_upstreams_module);
+
+            if (ngx_http_set_easy_ctx(ctx->r, &mcf->upstrand_intercept_ctx,
+                                      sr_ctx) == NGX_ERROR)
+            {
+                return NGX_ERROR;
+            }
+#else
             /* location must be protected from interceptions by error_page,
              * this is achieved by setting error_page flag for the request */
             sr->error_page = 1;
+#endif
 
             return NGX_OK;
         }
@@ -418,7 +449,7 @@ ngx_http_upstrand_response_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
     }
 
     if (r != ctx->r) {
-        sr_ctx = ngx_http_get_module_ctx(r, ngx_http_combined_upstreams_module);
+        sr_ctx = ngx_http_get_upstrand_subrequest_ctx(r, ctx->r);
         if (sr_ctx == NULL) {
             return NGX_ERROR;
         }
@@ -507,7 +538,7 @@ ngx_http_upstrand_check_upstream_vars(ngx_http_request_t *r, ngx_int_t  rc)
     }
 
     if (r != ctx->r) {
-        sr_ctx = ngx_http_get_module_ctx(r, ngx_http_combined_upstreams_module);
+        sr_ctx = ngx_http_get_upstrand_subrequest_ctx(r, ctx->r);
         if (sr_ctx == NULL) {
             return;
         }
@@ -718,7 +749,7 @@ ngx_http_upstrand_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
     }
 
     if (r != ctx->r) {
-        sr_ctx = ngx_http_get_module_ctx(r, ngx_http_combined_upstreams_module);
+        sr_ctx = ngx_http_get_upstrand_subrequest_ctx(r, ctx->r);
         if (sr_ctx == NULL) {
             return NGX_ERROR;
         }
@@ -1543,4 +1574,28 @@ ngx_http_upstrand_regex_add_upstream(ngx_conf_t *cf, ngx_array_t *upstreams,
 }
 
 #endif
+
+
+static ngx_http_upstrand_subrequest_ctx_t*
+ngx_http_get_upstrand_subrequest_ctx(ngx_http_request_t *r,
+                                     ngx_http_request_t *ctx_r)
+{
+#ifdef NGX_HTTP_COMBINED_UPSTREAMS_UPSTRAND_PERSISTENT_INTERCEPT_CTX
+    ngx_http_combined_upstreams_main_conf_t  *mcf;
+#endif
+    ngx_http_upstrand_subrequest_ctx_t       *sr_ctx;
+
+    sr_ctx = ngx_http_get_module_ctx(r, ngx_http_combined_upstreams_module);
+
+#ifdef NGX_HTTP_COMBINED_UPSTREAMS_UPSTRAND_PERSISTENT_INTERCEPT_CTX
+    mcf = ngx_http_get_module_main_conf(r, ngx_http_combined_upstreams_module);
+
+    /* restore context that could have been erased by internal redirections */
+    if (sr_ctx == NULL) {
+        sr_ctx = ngx_http_get_easy_ctx(ctx_r, &mcf->upstrand_intercept_ctx);
+    }
+#endif
+
+    return sr_ctx;
+}
 
