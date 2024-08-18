@@ -51,7 +51,8 @@ jobs:
           prove t/basic.t t/timeout.t
           cd -
           wget "https://github.com/lyokha/nginx-easy-context/"`
-              `"archive/refs/tags/$NGXEASYCTXVER.tar.gz" &&
+              `"archive/refs/tags/$NGXEASYCTXVER.tar.gz" \
+               -O "nginx-easy-context-$NGXEASYCTXVER.tar.gz" &&
                   tar xzvf "nginx-easy-context-$NGXEASYCTXVER.tar.gz"
           cd nginx-${NGXVER}/
           $NGX_CONFIGURE --add-module=../nginx-easy-context-$NGXEASYCTXVER \
@@ -59,5 +60,5 @@ jobs:
           make -j2
           cd -
           cd test
-          prove t/redirect_failover_location.t
+          prove t/redirect_upstrand_failover_location.t
 
