@@ -147,7 +147,7 @@ static ngx_uint_t  ngx_http_upstrand_gw_modules[5];
 ngx_int_t
 ngx_http_upstrand_init(ngx_conf_t *cf)
 {
-#ifdef NGX_HTTP_COMBINED_UPSTREAMS_UPSTRAND_PERSISTENT_INTERCEPT_CTX
+#ifdef NGX_HTTP_COMBINED_UPSTREAMS_PERSISTENT_UPSTRAND_INTERCEPT_CTX
     ngx_http_combined_upstreams_main_conf_t  *mcf;
 
     mcf = ngx_http_conf_get_module_main_conf(cf,
@@ -213,7 +213,7 @@ static ngx_int_t
 ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
 {
     ngx_uint_t                                i;
-#ifdef NGX_HTTP_COMBINED_UPSTREAMS_UPSTRAND_PERSISTENT_INTERCEPT_CTX
+#ifdef NGX_HTTP_COMBINED_UPSTREAMS_PERSISTENT_UPSTRAND_INTERCEPT_CTX
     ngx_http_combined_upstreams_main_conf_t  *mcf;
 #endif
     ngx_http_request_t                       *sr;
@@ -389,7 +389,7 @@ ngx_http_upstrand_response_header_filter(ngx_http_request_t *r)
 
             ngx_http_set_ctx(sr, sr_ctx, ngx_http_combined_upstreams_module);
 
-#ifdef NGX_HTTP_COMBINED_UPSTREAMS_UPSTRAND_PERSISTENT_INTERCEPT_CTX
+#ifdef NGX_HTTP_COMBINED_UPSTREAMS_PERSISTENT_UPSTRAND_INTERCEPT_CTX
             mcf = ngx_http_get_module_main_conf(r,
                                         ngx_http_combined_upstreams_module);
 
@@ -1580,14 +1580,14 @@ static ngx_http_upstrand_subrequest_ctx_t*
 ngx_http_get_upstrand_subrequest_ctx(ngx_http_request_t *r,
                                      ngx_http_request_t *ctx_r)
 {
-#ifdef NGX_HTTP_COMBINED_UPSTREAMS_UPSTRAND_PERSISTENT_INTERCEPT_CTX
+#ifdef NGX_HTTP_COMBINED_UPSTREAMS_PERSISTENT_UPSTRAND_INTERCEPT_CTX
     ngx_http_combined_upstreams_main_conf_t  *mcf;
 #endif
     ngx_http_upstrand_subrequest_ctx_t       *sr_ctx;
 
     sr_ctx = ngx_http_get_module_ctx(r, ngx_http_combined_upstreams_module);
 
-#ifdef NGX_HTTP_COMBINED_UPSTREAMS_UPSTRAND_PERSISTENT_INTERCEPT_CTX
+#ifdef NGX_HTTP_COMBINED_UPSTREAMS_PERSISTENT_UPSTRAND_INTERCEPT_CTX
     mcf = ngx_http_get_module_main_conf(r, ngx_http_combined_upstreams_module);
 
     /* restore context that could have been erased by internal redirections */

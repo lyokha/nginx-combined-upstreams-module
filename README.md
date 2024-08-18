@@ -420,7 +420,7 @@ internal redirections in them (*try_files*, *error_page* etc.), download module
 directory, uncomment line
 
 ```sh
-# NGX_HTTP_COMBINED_UPSTREAMS_UPSTRAND_PERSISTENT_INTERCEPT_CTX=1
+# NGX_HTTP_COMBINED_UPSTREAMS_PERSISTENT_UPSTRAND_INTERCEPT_CTX=1
 ```
 
 in file *config* in directory of this module and then run *configure* with two
