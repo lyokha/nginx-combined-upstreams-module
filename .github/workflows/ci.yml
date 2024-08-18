@@ -9,7 +9,8 @@ jobs:
     continue-on-error: ${{ matrix.experimental }}
     strategy:
       matrix:
-        nginx: [1.16.1, 1.18.0, 1.20.2, 1.22.1, 1.24.0, 1.26.1]
+        nginx: [1.16.1, 1.18.0, 1.20.2, 1.22.1, 1.24.0, 1.26.2]
+        nginx-easy-context: ['1.0']
         experimental: [false]
         include:
           - nginx: head
@@ -25,6 +26,7 @@ jobs:
       - name: Install and test
         env:
           NGXVER: ${{ matrix.nginx }}
+          NGXEASYCTXVER: ${{ matrix.nginx-easy-context }}
         run: |
           if [ "$NGXVER" = head ]
           then
@@ -46,5 +48,16 @@ jobs:
           export PATH="$(pwd)/objs:$PATH"
           cd -
           cd test
-          prove -r t
+          prove t/basic.t t/timeout.t
+          cd -
+          wget "https://github.com/lyokha/nginx-easy-context/"`
+              `"archive/refs/tags/$NGXEASYCTXVER.tar.gz" &&
+                  tar xzvf "nginx-easy-context-$NGXEASYCTXVER.tar.gz"
+          cd nginx-${NGXVER}/
+          $NGX_CONFIGURE --add-module=../nginx-easy-context-$NGXEASYCTXVER \
+              --add-module=.. --add-module=../echo-nginx-module
+          make -j2
+          cd -
+          cd test
+          prove t/redirect_failover_location.t
 
