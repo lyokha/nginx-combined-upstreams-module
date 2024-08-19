@@ -5,7 +5,7 @@
  *
  *    Description:  nginx module for building combined upstreams
  *
- *        Version:  2.2
+ *        Version:  2.3
  *        Created:  13.08.2020 16:57:22
  *
  *         Author:  Alexey Radkov (), 
@@ -34,8 +34,8 @@ typedef struct {
 
 
 typedef struct {
-    ngx_array_t  dyn_upstrands;
-    ngx_uint_t   upstrand_gw_modules_checked;
+    ngx_array_t                 dyn_upstrands;
+    ngx_uint_t                  upstrand_gw_modules_checked;
 } ngx_http_combined_upstreams_loc_conf_t;
 
 

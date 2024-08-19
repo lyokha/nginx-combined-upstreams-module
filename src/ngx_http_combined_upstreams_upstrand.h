@@ -5,7 +5,7 @@
  *
  *    Description:  upstrand is a super-layer of nginx upstreams
  *
- *        Version:  2.2
+ *        Version:  2.3
  *        Created:  13.08.2020 16:58:09
  *
  *         Author:  Alexey Radkov (), 

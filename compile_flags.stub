@@ -2,7 +2,9 @@
 
 # generate compile_flags.txt for clangd by running this as
 #
-#   NGX_HOME=/path/to/nginx_sources . compile_flags.stub > compile_flags.txt
+#   NGX_HOME=/path/to/nginx_sources \
+#   NGX_EASY_CTX_HOME=/path/to/nginx-easy-context_sources \
+#   . compile_flags.stub > compile_flags.txt
 #
 
 if test -z "$NGX_HOME"
@@ -16,5 +18,10 @@ else
     echo -I"$NGX_HOME/src/event/modules"
     echo -I"$NGX_HOME/src/os/unix"
     echo -I"$NGX_HOME/objs"
+    if test -n "$NGX_EASY_CTX_HOME"
+    then
+        echo -I"$NGX_EASY_CTX_HOME"
+        echo -DNGX_HTTP_COMBINED_UPSTREAMS_PERSISTENT_UPSTRAND_INTERCEPT_CTX
+    fi
 fi
 
