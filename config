@@ -1,11 +1,15 @@
 ngx_addon_name=ngx_http_combined_upstreams_module
 
-# uncomment next line to enable correct behavior of upstrand interception
-# locations with internal redirections, e.g. error_page or try_files
-# NGX_HTTP_COMBINED_UPSTREAMS_PERSISTENT_UPSTRAND_INTERCEPT_CTX=1
-
-if test -n "$NGX_HTTP_COMBINED_UPSTREAMS_PERSISTENT_UPSTRAND_INTERCEPT_CTX"
+if [ "$NGX_HTTP_COMBINED_UPSTREAMS_PERSISTENT_UPSTRAND_INTERCEPT_CTX" = y ] ||
+   [ "$NGX_HTTP_COMBINED_UPSTREAMS_PERSISTENT_UPSTRAND_INTERCEPT_CTX" = yes ]
 then
+    if [ "$ngx_easy_context_dir" = "" ]
+    then
+        echo "$0: error: unable to find nginx-easy-context module!"
+        echo "   Make sure that it was specified in one of --add-module "`
+            `"or --add-dynamic-module options before this module"
+        exit 1
+    fi
     ngx_module_incs="$ngx_easy_context_dir"
     NGX_EASY_CONTEXT_INC="$ngx_easy_context_dir/ngx_easy_context.h"
 else
@@ -23,31 +27,15 @@ NGX_HTTP_COMBINED_UPSTREAMS_MODULE_SRCS="                                   \
         $ngx_addon_dir/src/ngx_http_combined_upstreams_upstrand.c           \
         "
 
-if test -n "$ngx_module_link"
-then
-    ngx_module_type=HTTP_AUX_FILTER
-    ngx_module_name=$ngx_addon_name
-    ngx_module_deps="$NGX_HTTP_COMBINED_UPSTREAMS_MODULE_DEPS"
-    ngx_module_srcs="$NGX_HTTP_COMBINED_UPSTREAMS_MODULE_SRCS"
+ngx_module_type=HTTP_AUX_FILTER
+ngx_module_name=$ngx_addon_name
+ngx_module_deps="$NGX_HTTP_COMBINED_UPSTREAMS_MODULE_DEPS"
+ngx_module_srcs="$NGX_HTTP_COMBINED_UPSTREAMS_MODULE_SRCS"
 
-    if test -n "$NGX_HTTP_COMBINED_UPSTREAMS_PERSISTENT_UPSTRAND_INTERCEPT_CTX"
-    then
-        ngx_module_incs="$ngx_easy_context_dir"
-    fi
+. auto/module
 
-    . auto/module
-else
-    HTTP_AUX_FILTER_MODULES="$HTTP_AUX_FILTER_MODULES $ngx_addon_name"
-    NGX_ADDON_DEPS="$NGX_ADDON_SRCS $NGX_HTTP_CUSTOM_COUNTERS_MODULE_DEPS"
-    NGX_ADDON_SRCS="$NGX_ADDON_SRCS $NGX_HTTP_CUSTOM_COUNTERS_MODULE_SRCS"
-
-    if test -n "$NGX_HTTP_COMBINED_UPSTREAMS_PERSISTENT_UPSTRAND_INTERCEPT_CTX"
-    then
-        CFLAGS="$CFLAGS -I$ngx_easy_context_dir"
-    fi
-fi
-
-if test -n "$NGX_HTTP_COMBINED_UPSTREAMS_PERSISTENT_UPSTRAND_INTERCEPT_CTX"
+if [ "$NGX_HTTP_COMBINED_UPSTREAMS_PERSISTENT_UPSTRAND_INTERCEPT_CTX" = y ] ||
+   [ "$NGX_HTTP_COMBINED_UPSTREAMS_PERSISTENT_UPSTRAND_INTERCEPT_CTX" = yes ]
 then
     CFLAGS="$CFLAGS "`
         `"-DNGX_HTTP_COMBINED_UPSTREAMS_PERSISTENT_UPSTRAND_INTERCEPT_CTX"

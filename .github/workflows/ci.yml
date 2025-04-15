@@ -9,7 +9,7 @@ jobs:
     continue-on-error: ${{ matrix.experimental }}
     strategy:
       matrix:
-        nginx: [1.16.1, 1.18.0, 1.20.2, 1.22.1, 1.24.0, 1.26.2]
+        nginx: [1.16.1, 1.18.0, 1.20.2, 1.22.1, 1.24.0, 1.26.3]
         nginx-easy-context: ['1.0']
         experimental: [false]
         include:
@@ -56,7 +56,7 @@ jobs:
                -O "nginx-easy-context-$NGXEASYCTXVER.tar.gz" &&
                   tar xzvf "nginx-easy-context-$NGXEASYCTXVER.tar.gz"
           cd nginx-${NGXVER}/
-          NGX_HTTP_COMBINED_UPSTREAMS_PERSISTENT_UPSTRAND_INTERCEPT_CTX=1 \
+          NGX_HTTP_COMBINED_UPSTREAMS_PERSISTENT_UPSTRAND_INTERCEPT_CTX=yes \
           $NGX_CONFIGURE --add-module=../nginx-easy-context-$NGXEASYCTXVER \
               --add-module=.. --add-module=../echo-nginx-module
           make -j2
