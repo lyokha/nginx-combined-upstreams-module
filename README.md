@@ -18,6 +18,7 @@ Table of contents
 - [Directive extend_single_peers](#directive-extend_single_peers)
 - [Block upstrand](#block-upstrand)
 - [Directive dynamic_upstrand](#directive-dynamic_upstrand)
+- [Pre-built Packages (Ubuntu / Debian)](#pre-built-packages-ubuntu--debian)
 - [Build and test](#build-and-test)
 - [See also](#see-also)
 
@@ -385,6 +386,28 @@ value of *arg_a* that points to a valid destination), otherwise (both *arg_b*
 and *arg_a* are not set or empty) the request will be sent to the upstrand
 *us2*.
 
+Pre-built Packages (Ubuntu / Debian)
+------------------------------------
+
+Pre-built packages for this module are freely available from the GetPageSpeed repository:
+
+```bash
+# Install the repository keyring
+sudo install -d -m 0755 /etc/apt/keyrings
+curl -fsSL https://extras.getpagespeed.com/deb-archive-keyring.gpg \
+  | sudo tee /etc/apt/keyrings/getpagespeed.gpg >/dev/null
+
+# Add the repository (Ubuntu example - replace 'ubuntu' and 'jammy' for your distro)
+echo "deb [signed-by=/etc/apt/keyrings/getpagespeed.gpg] https://extras.getpagespeed.com/ubuntu jammy main" \
+  | sudo tee /etc/apt/sources.list.d/getpagespeed-extras.list
+
+# Install nginx and the module
+sudo apt-get update
+sudo apt-get install nginx nginx-module-combined-upstreams
+```
+
+The module is automatically enabled after installation. Supported distributions include Debian 12/13 and Ubuntu 20.04/22.04/24.04 (both amd64 and arm64). See [the complete setup instructions](https://apt-nginx-extras.getpagespeed.com/apt-setup/).
+
 Build and test
 --------------
 
@@ -456,4 +479,3 @@ An overview of block *upstrand* usage and some details on its implementation.
 апстримов*](http://lin-techdet.blogspot.com/2015/12/nginx.html) (in Russian). An
 overview of all features of the module with configuration examples and testing
 session samples.
-
