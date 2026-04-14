@@ -18,7 +18,7 @@ jobs:
             experimental: true
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Install prove
         uses: perl-actions/install-with-cpanm@v2
         with:
